@@ -31,7 +31,8 @@ from sklearn.model_selection import train_test_split
 
 HERE   = Path(__file__).resolve().parent
 CACHE  = HERE / 'cache'
-RESULT = HERE / 'results'
+RESULT = HERE / 'results' / '04_feature_importance'
+RESULT.mkdir(exist_ok=True, parents=True)
 
 NUMERIC = ['year_mean','duration_mean','year_known_ratio','n_tracks','n_genres']
 

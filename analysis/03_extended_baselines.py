@@ -31,7 +31,8 @@ from sklearn.model_selection import cross_val_score, KFold
 
 HERE   = Path(__file__).resolve().parent
 CACHE  = HERE / 'cache'
-RESULT = HERE / 'results'
+RESULT = HERE / 'results' / '03_extended_baselines'
+RESULT.mkdir(exist_ok=True, parents=True)
 
 def main():
     t0 = time.time()

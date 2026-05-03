@@ -29,8 +29,8 @@ from sklearn.model_selection import cross_val_score, KFold
 
 HERE   = Path(__file__).resolve().parent
 CACHE  = HERE / 'cache'
-RESULT = HERE / 'results'
-RESULT.mkdir(exist_ok=True)
+RESULT = HERE / 'results' / '02_diagnostics_vif_pca'
+RESULT.mkdir(exist_ok=True, parents=True)
 
 def main():
     t0 = time.time()

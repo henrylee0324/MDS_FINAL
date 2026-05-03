@@ -39,7 +39,8 @@ from sklearn.model_selection import cross_val_score, KFold, train_test_split
 
 HERE   = Path(__file__).resolve().parent
 CACHE  = HERE / 'cache'
-RESULT = HERE / 'results'
+RESULT = HERE / 'results' / '05_leakage_check'
+RESULT.mkdir(exist_ok=True, parents=True)
 
 def categorize(name, num_set):
     if name in num_set:                     return 'numeric'

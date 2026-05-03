@@ -38,7 +38,8 @@ from sklearn.pipeline import Pipeline
 
 HERE   = Path(__file__).resolve().parent
 CACHE  = HERE / 'cache'
-RESULT = HERE / 'results'
+RESULT = HERE / 'results' / '07_rigor_strengthening'
+RESULT.mkdir(exist_ok=True, parents=True)
 
 NUMERIC = ['year_mean','duration_mean','year_known_ratio','n_tracks','n_genres']
 

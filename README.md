@@ -74,29 +74,29 @@ data/MSD_*.db  ────────►│   SQL GROUP BY artist_id, AVG(feat
 audio cache ───────────►│   manual prune duplicates → 152 audio feats
                         │   VIF (diag of inv corr) + PCA scree
                         │   audio-only OLS / Ridge / Lasso / PCA-OLS
-                        └─► results/vif.csv, pca_explained_variance.csv,
-                            results/benchmark_audio_only.csv
+                        └─► results/02_diagnostics_vif_pca/vif.csv, pca_explained_variance.csv,
+                            results/02_diagnostics_vif_pca/benchmark_audio_only.csv
 
                         ┌─ 03_extended_baselines.py
 both caches ───────────►│   audio + numeric(5) + genre(30) = 187 feats
                         │   B: Ridge across feature subsets
                         │   D: HistGB default/tuned, RandomForest
-                        └─► results/benchmark_extended.csv
+                        └─► results/03_extended_baselines/benchmark_extended.csv
 
                         ┌─ 04_feature_importance.py
 both caches ───────────►│   Ridge standardized coefficients (full set)
                         │   HistGB tuned + permutation importance
-                        └─► results/ridge_coefs_full.csv,
-                            results/perm_importance_full.csv,
-                            results/importance_by_category.csv
+                        └─► results/04_feature_importance/ridge_coefs_full.csv,
+                            results/04_feature_importance/perm_importance_full.csv,
+                            results/04_feature_importance/importance_by_category.csv
 
                         ┌─ 05_leakage_check.py
 both caches ───────────►│   progressive ablation of n_tracks, n_genres,
                         │     year_known_ratio
                         │   strict-set Ridge coefs + perm importance
-                        └─► results/benchmark_leakage.csv,
-                            results/ridge_coefs_strict.csv,
-                            results/perm_importance_strict.csv
+                        └─► results/05_leakage_check/benchmark_leakage.csv,
+                            results/05_leakage_check/ridge_coefs_strict.csv,
+                            results/05_leakage_check/perm_importance_strict.csv
 ```
 
 ---
@@ -140,7 +140,7 @@ both caches ───────────►│   progressive ablation of n_
 | 全為 NaN 的藝人（`audio.dropna()`） | −59 列 | — |
 | 標準化後 zero-variance 欄 | −2 欄 | — |
 
-剩下 **39,233 列 × 152 個音訊特徵** 進入後續分析。被 zero-variance 過濾掉的 2 欄為 `LPC_Overall_Standard_Deviation_10` 與 `LPC_Overall_Average_10`（10 階 LPC 係數聚合到藝人層級後沒變化）。完整過濾紀錄見 `results/feature_sets_filtering.csv`。
+剩下 **39,233 列 × 152 個音訊特徵** 進入後續分析。被 zero-variance 過濾掉的 2 欄為 `LPC_Overall_Standard_Deviation_10` 與 `LPC_Overall_Average_10`（10 階 LPC 係數聚合到藝人層級後沒變化）。完整過濾紀錄見 `results/06_record_feature_sets/feature_sets_filtering.csv`。
 
 ### 4.2 VIF（用 inverse correlation 對角線一次算）
 
@@ -153,7 +153,7 @@ both caches ───────────►│   progressive ablation of n_
 | VIF > 1,000 | 57 / 152 |
 | VIF > 10⁶ | 12 / 152 |
 
-最嚴重的是 `Area_Method_of_Moments_Overall_*_{4..9}`——這是相鄰頻段的同類矩，本來就互相能線性表達。完整 VIF 表見 `results/vif.csv`。
+最嚴重的是 `Area_Method_of_Moments_Overall_*_{4..9}`——這是相鄰頻段的同類矩，本來就互相能線性表達。完整 VIF 表見 `results/02_diagnostics_vif_pca/vif.csv`。
 
 ### 4.3 PCA scree
 
@@ -165,7 +165,7 @@ both caches ───────────►│   progressive ablation of n_
 | 95 % | 30 |
 | 99 % | 58 |
 
-152 維特徵的本質維度約 30——與 VIF 結果一致。完整數據見 `results/pca_explained_variance.csv`。
+152 維特徵的本質維度約 30——與 VIF 結果一致。完整數據見 `results/02_diagnostics_vif_pca/pca_explained_variance.csv`。
 
 ### 4.4 純音訊 baseline（5-fold CV，shuffle=True，random_state=42）
 
@@ -187,7 +187,7 @@ both caches ───────────►│   progressive ablation of n_
 
 **結論**：消除共線性（Ridge / PCA / Lasso）只把 R² 從 0.067 提升到 0.084。**音訊資訊量本身就有限**，方法論上的處理只是邊際。
 
-完整表見 `results/benchmark_audio_only.csv`。
+完整表見 `results/02_diagnostics_vif_pca/benchmark_audio_only.csv`。
 
 ---
 
@@ -232,7 +232,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 
 線性 → 非線性差距：0.310 → 0.422，**+11 個百分點**為 nonlinearity / interactions 的貢獻。
 
-完整表見 `results/benchmark_extended.csv`。
+完整表見 `results/03_extended_baselines/benchmark_extended.csv`。
 
 ---
 
@@ -278,7 +278,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 | Spectral_Flux_Avg | −0.004 |
 | genre_pop_rock | −0.004 |
 
-完整係數見 `results/ridge_coefs_full.csv`。
+完整係數見 `results/04_feature_importance/ridge_coefs_full.csv`。
 
 ### 6.2 HistGB Permutation Importance（top 15）
 
@@ -300,7 +300,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 | 0.003 | genre_united_states |
 | 0.003 | genre_electronica |
 
-完整數值見 `results/perm_importance_full.csv`。
+完整數值見 `results/04_feature_importance/perm_importance_full.csv`。
 
 ### 6.3 依特徵類別累計 importance
 
@@ -316,7 +316,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 
 5 個 numeric 特徵的累計重要度 ≈ 30 個 genre + 152 個 audio 的總和。
 
-完整表見 `results/importance_by_category.csv`。
+完整表見 `results/04_feature_importance/importance_by_category.csv`。
 
 ---
 
@@ -358,7 +358,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 - 兩個都拿掉：**Ridge 從 0.32 → 0.24，HistGB 從 0.42 → 0.36**
 - 0.42 中約 0.06（14 %）來自 leakage，不是真實預測力
 
-完整表見 `results/benchmark_leakage.csv`。
+完整表見 `results/05_leakage_check/benchmark_leakage.csv`。
 
 ### 7.3 Strict set 上 Ridge 係數重新洗牌
 
@@ -377,7 +377,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 | marsyas PeakRatio_Min_Chroma_A | +0.032 |
 | Area_MoM_Avg_1 | +0.028 |
 
-完整係數見 `results/ridge_coefs_strict.csv`。
+完整係數見 `results/05_leakage_check/ridge_coefs_strict.csv`。
 
 ### 7.4 Strict set permutation importance（top 15）
 
@@ -413,7 +413,7 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 
 移除 leak features 後，**音訊類別的相對重要度全部變成原本的 2–4 倍**。
 
-完整數值見 `results/perm_importance_strict.csv`。
+完整數值見 `results/05_leakage_check/perm_importance_strict.csv`。
 
 ---
 
@@ -427,10 +427,10 @@ Tree models：HistGB 對 NaN 原生支援；RandomForest 用 median-impute。
 
 | 輸出檔案 | 內容 |
 |---|---|
-| `feature_sets_filtering.csv` | 216 個原始音訊特徵的過濾履歷：`in_raw_216` → `in_after_manual` → `in_after_zerovar`，每個特徵都標出在哪一階段被砍掉 |
-| `feature_sets_summary.csv` | 22 個 configuration 的摘要：`script, config, n_features, note`（note 列出各類別特徵數）|
-| `feature_sets_long.csv` | 長表：每個 (config, feature) 配對一列；可篩選 `df[df.config=='strict_drop_both']` 取出該跑法用的全部特徵 |
-| `feature_sets_wide.csv` | 寬表：每個 config 一欄、每個 feature 一列、cell = 0/1 表示是否使用，方便試算表觀察跨 config 的差異 |
+| `06_record_feature_sets/feature_sets_filtering.csv` | 216 個原始音訊特徵的過濾履歷：`in_raw_216` → `in_after_manual` → `in_after_zerovar`，每個特徵都標出在哪一階段被砍掉 |
+| `06_record_feature_sets/feature_sets_summary.csv` | 22 個 configuration 的摘要：`script, config, n_features, note`（note 列出各類別特徵數）|
+| `06_record_feature_sets/feature_sets_long.csv` | 長表：每個 (config, feature) 配對一列；可篩選 `df[df.config=='strict_drop_both']` 取出該跑法用的全部特徵 |
+| `06_record_feature_sets/feature_sets_wide.csv` | 寬表：每個 config 一欄、每個 feature 一列、cell = 0/1 表示是否使用，方便試算表觀察跨 config 的差異 |
 
 涵蓋的 22 個 configuration：
 
@@ -553,7 +553,7 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 > **結論**：把 152 砍到 61（少 60 %），R² 只掉 0.006。表示**被砍掉的 91 個欄位確實是冗餘的**——既支持「手工修剪不夠激進」，也說明 Ridge 已經有效處理了這些冗餘。**整體預測力幾乎不受影響**。
 
-完整迭代軌跡見 `results/vif_iterative_trace.csv`，存活特徵列表見 `results/vif_iterative_survivors.csv`。
+完整迭代軌跡見 `results/07_rigor_strengthening/vif_iterative_trace.csv`，存活特徵列表見 `results/07_rigor_strengthening/vif_iterative_survivors.csv`。
 
 ### 10.2 Lasso active set sweep
 
@@ -569,7 +569,7 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 > **結論**：Lasso 認為「足夠用」的特徵約 27 個（α=0.001），R²=0.074；與「全 152 Ridge」R²=0.084 只差 0.010。**確認音訊特徵的有效自由度約在 30–80 之間**——與 PCA 的「95 % variance 需 30 個 PC」、VIF 砍剩 61 個的數字相互印證。
 
-完整 active sets 見 `results/lasso_active_sets.csv`（每個 α 都列出對應的特徵清單）。
+完整 active sets 見 `results/07_rigor_strengthening/lasso_active_sets.csv`（每個 α 都列出對應的特徵清單）。
 
 ### 10.3 Stratified-by-hotness 5-fold CV
 
@@ -584,7 +584,7 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 > **結論**：所有 |Δ| < 0.005，**stratification 沒有改變任何結論**。意思是 random KFold 在本資料上已經是穩健的估計工具——hotness 在 39,233 位藝人中分佈夠均勻，random split 不會偏向特定區間。原本所有 R² 數字都不需要重跑。
 
-完整數值見 `results/stratified_cv_benchmark.csv`。
+完整數值見 `results/07_rigor_strengthening/stratified_cv_benchmark.csv`。
 
 ### 10.4 三個補強方法的綜合評估
 
@@ -719,23 +719,29 @@ python analysis/07_rigor_strengthening.py   # ~94s
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
-    └── results/
-        ├── vif.csv
-        ├── pca_explained_variance.csv
-        ├── benchmark_audio_only.csv
-        ├── benchmark_extended.csv
-        ├── benchmark_leakage.csv
-        ├── ridge_coefs_full.csv
-        ├── ridge_coefs_strict.csv
-        ├── perm_importance_full.csv
-        ├── perm_importance_strict.csv
-        ├── importance_by_category.csv
-        ├── feature_sets_filtering.csv
-        ├── feature_sets_summary.csv
-        ├── feature_sets_long.csv
-        ├── feature_sets_wide.csv
-        ├── vif_iterative_trace.csv
-        ├── vif_iterative_survivors.csv
-        ├── lasso_active_sets.csv
-        └── stratified_cv_benchmark.csv
+    └── results/                        每個子目錄對應一支腳本
+        ├── 02_diagnostics_vif_pca/
+        │   ├── vif.csv
+        │   ├── pca_explained_variance.csv
+        │   └── benchmark_audio_only.csv
+        ├── 03_extended_baselines/
+        │   └── benchmark_extended.csv
+        ├── 04_feature_importance/
+        │   ├── ridge_coefs_full.csv
+        │   ├── perm_importance_full.csv
+        │   └── importance_by_category.csv
+        ├── 05_leakage_check/
+        │   ├── benchmark_leakage.csv
+        │   ├── ridge_coefs_strict.csv
+        │   └── perm_importance_strict.csv
+        ├── 06_record_feature_sets/
+        │   ├── feature_sets_filtering.csv
+        │   ├── feature_sets_summary.csv
+        │   ├── feature_sets_long.csv
+        │   └── feature_sets_wide.csv
+        └── 07_rigor_strengthening/
+            ├── vif_iterative_trace.csv
+            ├── vif_iterative_survivors.csv
+            ├── lasso_active_sets.csv
+            └── stratified_cv_benchmark.csv
 ```
