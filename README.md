@@ -43,8 +43,8 @@
 ### 想看技術細節？
 
 - 每個步驟都分成「**白話版**」與「**技術細節**」兩段
-- 看到看不懂的術語，跳到最後的「[13. 名詞解釋](#13-名詞解釋)」
-- 想複製整個實驗，看「[11. 重現方式](#11-重現方式)」
+- 看到看不懂的術語，跳到最後的「[14. 名詞解釋](#14-名詞解釋)」
+- 想複製整個實驗，看「[12. 重現方式](#12-重現方式)」
 
 ---
 
@@ -530,7 +530,75 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 ---
 
-## 10. 最終結論
+## 10. 強化嚴謹度（VIF / Lasso / Stratified CV）
+
+> **白話版**：第 9.4 節列了 4 個「該做但沒做」的補強項目。本節跑前 3 項，**結論：原本的手工修剪結果穩健，沒有重大遺漏**。
+
+`analysis/07_rigor_strengthening.py`
+
+### 10.1 Iterative VIF pruning
+
+從 152 個音訊特徵開始，每次砍掉 VIF 最大那一欄，重新計算，直到所有 VIF < 10。
+
+| 指標 | 值 |
+|---|---:|
+| 起始特徵數 | 152 |
+| 迭代次數 | 92 |
+| **存活特徵數** | **61** |
+| 最終 max VIF | 9.66 |
+| 5-fold CV OLS R² | 0.077 |
+| 5-fold CV Ridge R² | 0.078 |
+
+對照：原本「全 152 + Ridge α=100」R² = 0.084。
+
+> **結論**：把 152 砍到 61（少 60 %），R² 只掉 0.006。表示**被砍掉的 91 個欄位確實是冗餘的**——既支持「手工修剪不夠激進」，也說明 Ridge 已經有效處理了這些冗餘。**整體預測力幾乎不受影響**。
+
+完整迭代軌跡見 `results/vif_iterative_trace.csv`，存活特徵列表見 `results/vif_iterative_survivors.csv`。
+
+### 10.2 Lasso active set sweep
+
+對 152 個標準化音訊特徵跑 Lasso，在多個 α 下記錄非零係數：
+
+| α | 非零特徵數 | 5-fold CV R² |
+|---:|---:|---:|
+| 0.0001 | 82 | 0.083 |
+| 0.0005 | 46 | 0.079 |
+| **0.001** | **27** | **0.074** |
+| 0.005 | 10 | 0.047 |
+| 0.01  | 4 | 0.019 |
+
+> **結論**：Lasso 認為「足夠用」的特徵約 27 個（α=0.001），R²=0.074；與「全 152 Ridge」R²=0.084 只差 0.010。**確認音訊特徵的有效自由度約在 30–80 之間**——與 PCA 的「95 % variance 需 30 個 PC」、VIF 砍剩 61 個的數字相互印證。
+
+完整 active sets 見 `results/lasso_active_sets.csv`（每個 α 都列出對應的特徵清單）。
+
+### 10.3 Stratified-by-hotness 5-fold CV
+
+把藝人按 hotness 五等分位分層，重新評估 4 個關鍵 configuration：
+
+| Config | Model | Random KFold | Stratified CV | Δ |
+|---|---|---:|---:|---:|
+| full_187 | Ridge | 0.3095 ± 0.0446 | 0.3094 ± 0.0442 | −0.0002 |
+| full_187 | HistGB | 0.4217 ± 0.0018 | 0.4218 ± 0.0069 | +0.0002 |
+| strict_185 | Ridge | 0.2374 ± 0.0033 | 0.2351 ± 0.0039 | −0.0022 |
+| strict_185 | HistGB | 0.3569 ± 0.0039 | 0.3584 ± 0.0059 | +0.0015 |
+
+> **結論**：所有 |Δ| < 0.005，**stratification 沒有改變任何結論**。意思是 random KFold 在本資料上已經是穩健的估計工具——hotness 在 39,233 位藝人中分佈夠均勻，random split 不會偏向特定區間。原本所有 R² 數字都不需要重跑。
+
+完整數值見 `results/stratified_cv_benchmark.csv`。
+
+### 10.4 三個補強方法的綜合評估
+
+| 補強方法 | 改變 R² | 改變結論 | 增加什麼新資訊 |
+|---|---|---|---|
+| Iterative VIF pruning | −0.006 | 否 | 「~60 個 VIF<10 的核心音訊特徵」清單 |
+| Lasso α 掃描 | 隨 α 而異 | 否 | 「~27 個 Lasso 認為夠用的特徵」清單 |
+| Stratified-by-hotness CV | |Δ| < 0.005 | 否 | 確認原 R² 估計的穩健性 |
+
+> **跨方法交叉印證**：PCA 95 % variance → 30 個 PC；iterative VIF → 61 個存活；Lasso α=0.001 → 27 個 active。三種彼此獨立的方法**都指向「音訊本質自由度在 30–80 之間」**。原本基於命名推斷的「152 個音訊大量冗餘」假設，到此被三個演算法獨立驗證。
+
+---
+
+## 11. 最終結論
 
 > **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.42 的版本（含 leakage），但**真正部署到新藝人**要用 R²=0.36（非線性）或 R²=0.24（線性）的誠實版本。**核心洞察是：藝人熱度由曝光、年代、曲風驅動，音訊本身只是次要訊號**。
 
@@ -554,7 +622,7 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 ---
 
-## 11. 重現方式
+## 12. 重現方式
 
 ```powershell
 # 1. 從 SQLite 聚合到藝人層級
@@ -574,6 +642,9 @@ python analysis/05_leakage_check.py         # ~3 min
 
 # 6. 記錄每個 configuration 用到的特徵集
 python analysis/06_record_feature_sets.py   # <1s
+
+# 7. 強化嚴謹度（iterative VIF / Lasso 掃描 / stratified CV）
+python analysis/07_rigor_strengthening.py   # ~94s
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -582,7 +653,7 @@ python analysis/06_record_feature_sets.py   # <1s
 
 ---
 
-## 12. 已知限制
+## 13. 已知限制
 
 1. **`song_hotttnesss` 不在本 DB**——只能用 `artist_hotttnesss` 作為熱度代理；同藝人的不同歌存在差異（8.4 % 藝人，median spread 0.028），以 `AVG` 聚合時抹平了這個變異。
 2. **`year_mean` 對 32 % 的藝人是 NaN**（所有歌 `year = 0`），用 median 補值，可能稀釋年代訊號。
@@ -593,7 +664,7 @@ python analysis/06_record_feature_sets.py   # <1s
 
 ---
 
-## 13. 名詞解釋
+## 14. 名詞解釋
 
 | 術語 | 中文 | 白話解釋 |
 |---|---|---|
@@ -626,7 +697,7 @@ python analysis/06_record_feature_sets.py   # <1s
 
 ---
 
-## 14. 檔案結構
+## 15. 檔案結構
 
 ```
 .
@@ -644,6 +715,7 @@ python analysis/06_record_feature_sets.py   # <1s
     ├── 04_feature_importance.py
     ├── 05_leakage_check.py
     ├── 06_record_feature_sets.py
+    ├── 07_rigor_strengthening.py
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -661,5 +733,9 @@ python analysis/06_record_feature_sets.py   # <1s
         ├── feature_sets_filtering.csv
         ├── feature_sets_summary.csv
         ├── feature_sets_long.csv
-        └── feature_sets_wide.csv
+        ├── feature_sets_wide.csv
+        ├── vif_iterative_trace.csv
+        ├── vif_iterative_survivors.csv
+        ├── lasso_active_sets.csv
+        └── stratified_cv_benchmark.csv
 ```
