@@ -1,0 +1,23 @@
+script,config,n_features,note
+02_diagnostics_vif_pca,audio_only_152,152,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72"
+02_diagnostics_vif_pca,OLS_top3_PCs,(projection),<3 principal components from 152 audio>
+02_diagnostics_vif_pca,OLS_top9_PCs,(projection),<9 principal components from 152 audio>
+02_diagnostics_vif_pca,OLS_top18_PCs,(projection),<18 principal components from 152 audio>
+02_diagnostics_vif_pca,OLS_top30_PCs,(projection),<30 principal components from 152 audio>
+02_diagnostics_vif_pca,OLS_top58_PCs,(projection),<58 principal components from 152 audio>
+02_diagnostics_vif_pca,OLS_top100_PCs,(projection),<100 principal components from 152 audio>
+03_extended_baselines,audio_only,152,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72"
+03_extended_baselines,audio_plus_numeric,157,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, numeric:5"
+03_extended_baselines,audio_plus_genre,182,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30"
+03_extended_baselines,full_187,187,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:5"
+03_extended_baselines,non_audio_only,35,"genre:30, numeric:5"
+03_extended_baselines,numeric_only,5,numeric:5
+03_extended_baselines,genre_only,30,genre:30
+04_feature_importance,full_187,187,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:5"
+05_leakage_check,full,187,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:5"
+05_leakage_check,drop_n_tracks,186,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:4"
+05_leakage_check,drop_n_genres,186,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:4"
+05_leakage_check,strict_drop_both,185,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:3"
+05_leakage_check,drop_year_known_ratio,184,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30, numeric:2"
+05_leakage_check,audio_plus_genre,182,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72, genre:30"
+05_leakage_check,audio_only,152,"audio:Area_MoM:20, audio:LPC:18, audio:MFCC_simple:26, audio:lowlevel:16, audio:marsyas:72"

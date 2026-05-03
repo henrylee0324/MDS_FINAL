@@ -1,0 +1,12 @@
+model,subset,n_feat,cv_r2
+Ridge,audio only,152,0.07396646689724837
+Ridge,audio + numeric,157,0.26005665520092935
+Ridge,audio + genre,182,0.1951985894969962
+Ridge,audio + numeric + genre,187,0.30953148450678303
+Ridge,non-audio only (num+genre),35,0.3035777199089277
+Ridge,numeric only,5,0.2576564654923665
+Ridge,genre only,30,0.15396945621287708
+HistGB default,audio + numeric + genre,187,0.4200971341745744
+HistGB tuned,audio + numeric + genre,187,0.421658814759041
+HistGB tuned,audio only,152,0.20910843797653875
+RandomForest,audio + numeric + genre,187,0.3947511755149816

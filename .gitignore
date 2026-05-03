@@ -1,0 +1,17 @@
+# Raw data (large, distributable separately)
+data/
+
+# Intermediate caches (regenerable from analysis/01)
+analysis/cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
