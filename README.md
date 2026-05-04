@@ -28,6 +28,7 @@
 | 2 | 加入年代、歌曲數等基本資訊後大幅進步 | R² = 0.42 | 但這 0.42 裡有「作弊成分」（見下） |
 | 3 | 拿掉作弊特徵後的誠實天花板 | R² = 0.36（複雜模型）<br/>R² = 0.24（簡單模型） | 對沒被收錄過的新藝人，這是用「簡化版曲風標籤」能達到的上限 |
 | 4 | 用 **CatBoost + 全部 7,538 個曲風標籤** | R² = 0.47（含作弊）<br/>R² = 0.43（誠實版） | 之前只用最熱門的 30 個，扔掉了 99.6 % 的標籤資訊 |
+| 5 | 進一步驗證：HistGB 配 top-1000 multi-hot 也能達 R²=0.43 | — | **CatBoost 的功勞 95 % 是 vocabulary，5 % 是演算法**——換大字彙比換模型重要 6–10 倍 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -44,8 +45,8 @@
 ### 想看技術細節？
 
 - 每個步驟都分成「**白話版**」與「**技術細節**」兩段
-- 看到看不懂的術語，跳到最後的「[15. 名詞解釋](#15-名詞解釋)」
-- 想複製整個實驗，看「[13. 重現方式](#13-重現方式)」
+- 看到看不懂的術語，跳到最後的「[16. 名詞解釋](#16-名詞解釋)」
+- 想複製整個實驗，看「[14. 重現方式](#14-重現方式)」
 
 ---
 
@@ -687,7 +688,68 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 
 ---
 
-## 12. 最終結論
+## 12. Vocabulary scaling：拆解 CatBoost 的「魔法」
+
+> **白話版**：第 11 節得到「CatBoost + 全部 7,538 個 tags」R²=0.43（strict），比 HistGB top-30 的 0.36 高 0.07。但這 +0.07 是 CatBoost 演算法的功勞，還是「把 vocabulary 從 30 開到 7,538」的功勞？這一節做拆解：在 HistGB（不換模型）上，把 vocabulary 從 30 一路開到 1000 看 R² 怎麼變。
+
+`analysis/09_vocab_scaling.py`
+
+### 12.1 HistGB 在不同 vocabulary 大小下的 R²
+
+| top_N | strict | full | strict Δ vs N=30 |
+|---:|---:|---:|---:|
+| 30 | 0.358 | 0.422 | — |
+| 100 | 0.410 | 0.449 | +0.052 |
+| 300 | 0.421 | 0.457 | +0.063 |
+| **1000** | **0.428** | **0.462** | **+0.070** |
+| **7538（CatBoost 對照）** | **0.430** | **0.470** | **+0.072** |
+
+完整數據見 `results/09_vocab_scaling/benchmark_vocab_scaling.csv`。
+
+### 12.2 解讀
+
+#### **(1) CatBoost 的「魔法」95 % 是 vocabulary，5 % 是內部表徵**
+
+| 比較對象 | strict | full |
+|---|---:|---:|
+| HistGB top-1000 multi-hot | 0.428 | 0.462 |
+| CatBoost text 7,538 tags | 0.430 | 0.470 |
+| **Δ（純算法差異）** | **+0.002** | **+0.008** |
+
+換言之：`CatBoost 演算法本身只貢獻 0.002–0.008 R²`，剩下的 0.06–0.07 全是「之前用 top-30 把 99.6 % vocabulary 丟掉」造成的。
+
+#### **(2) Diminishing returns curve**
+
+把 strict 的增量逐段看：
+
+| Step | strict R² 增益 |
+|---|---:|
+| 30 → 100 | **+0.052** ← 最大跳躍 |
+| 100 → 300 | +0.011 |
+| 300 → 1000 | +0.007 |
+| 1000 → 7538 | +0.002 |
+
+對 strict 而言，**top-300 multi-hot 就能拿到 vocabulary 紅利的 87 %**（從 +0.07 拿到 +0.063），且不需要 CatBoost。
+
+#### **(3) 重大的方法論修正**
+
+- 原本第 7 節說「strict R²=0.36 是誠實天花板」——**這只是「top-30 限制下」的天花板**，不是真正的天花板
+- 真正的誠實天花板應該是 **R² ≈ 0.43**（無論用 HistGB top-1000 還是 CatBoost text 都收斂到此）
+- 「audio 弱、metadata 強」的結論**仍然成立**，而且**音訊的相對地位更弱**：原本以為 metadata 解釋了 strict 下大部分變異（0.36 中約 0.21 來自 metadata），現在我們知道 metadata 其實能解釋更多（0.43 中約 0.28 來自 metadata）
+
+### 12.3 給之前報告的「打補釘」
+
+| 之前報告寫 | 實際情況 |
+|---|---|
+| strict 誠實天花板 R²=0.36 | top-30 限制下的天花板；vocabulary 放開後 R²≈0.43 |
+| HistGB 是非線性上界 | 在「vocabulary 充足」時，HistGB 與 CatBoost 收斂到相近值 |
+| CatBoost 顯著優於 HistGB | 在同樣 vocabulary 下，CatBoost 只比 HistGB 高 0.005–0.010；7,538 tag 的差距並非演算法功勞 |
+
+這是「**先誠實揭露 leakage，再誠實揭露 feature engineering 設限**」的兩段式自我修正。
+
+---
+
+## 13. 最終結論
 
 > **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.47 的 CatBoost 版本（含 leakage），但**真正部署到新藝人**要用 R²=0.43（CatBoost 誠實 + 全 tags）或 R²=0.24（線性誠實）的版本。**核心洞察是：藝人熱度由「曲風標籤、曝光、年代」三件事驅動，音訊本身只是次要訊號**——用 7,538 個原始 tag 比 152 個音訊特徵的訊息量還大。
 
@@ -714,7 +776,7 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 
 ---
 
-## 13. 重現方式
+## 14. 重現方式
 
 ```powershell
 # 1. 從 SQLite 聚合到藝人層級
@@ -740,6 +802,9 @@ python analysis/07_rigor_strengthening.py   # ~94s
 
 # 8. CatBoost：用全 vocabulary 7,538 個 genre tags（需 pip install catboost）
 python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 final fit）
+
+# 9. Vocabulary scaling（HistGB top-{30, 100, 300, 1000} 拆解 CatBoost 的貢獻）
+python analysis/09_vocab_scaling.py         # ~7 min
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -748,7 +813,7 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
 
 ---
 
-## 14. 已知限制
+## 15. 已知限制
 
 1. **`song_hotttnesss` 不在本 DB**——只能用 `artist_hotttnesss` 作為熱度代理；同藝人的不同歌存在差異（8.4 % 藝人，median spread 0.028），以 `AVG` 聚合時抹平了這個變異。
 2. **`year_mean` 對 32 % 的藝人是 NaN**（所有歌 `year = 0`），用 median 補值，可能稀釋年代訊號。
@@ -759,7 +824,7 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
 
 ---
 
-## 15. 名詞解釋
+## 16. 名詞解釋
 
 | 術語 | 中文 | 白話解釋 |
 |---|---|---|
@@ -792,7 +857,7 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
 
 ---
 
-## 16. 檔案結構
+## 17. 檔案結構
 
 ```
 .
@@ -812,6 +877,7 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
     ├── 06_record_feature_sets.py
     ├── 07_rigor_strengthening.py
     ├── 08_catboost.py
+    ├── 09_vocab_scaling.py
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -840,8 +906,10 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
         │   ├── vif_iterative_survivors.csv
         │   ├── lasso_active_sets.csv
         │   └── stratified_cv_benchmark.csv
-        └── 08_catboost/
-            ├── benchmark_catboost.csv
-            ├── feature_importance_catboost.csv
-            └── feature_importance_catboost_by_category.csv
+        ├── 08_catboost/
+        │   ├── benchmark_catboost.csv
+        │   ├── feature_importance_catboost.csv
+        │   └── feature_importance_catboost_by_category.csv
+        └── 09_vocab_scaling/
+            └── benchmark_vocab_scaling.csv
 ```
