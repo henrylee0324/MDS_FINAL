@@ -29,7 +29,8 @@
 | 3 | 拿掉作弊特徵後的誠實天花板 | R² = 0.36（複雜模型）<br/>R² = 0.24（簡單模型） | 對沒被收錄過的新藝人，這是用「簡化版曲風標籤」能達到的上限 |
 | 4 | 用 **CatBoost + 全部 7,538 個曲風標籤** | R² = 0.47（含作弊）<br/>R² = 0.43（誠實版） | 之前只用最熱門的 30 個，扔掉了 99.6 % 的標籤資訊 |
 | 5 | 進一步驗證：HistGB 配 top-1000 multi-hot 也能達 R²=0.43 | — | **CatBoost 的功勞 95 % 是 vocabulary，5 % 是演算法**——換大字彙比換模型重要 6–10 倍 |
-| 6 | （延伸分支）拿到 song_hotttnesss 後做 song-level + GroupKFold | R² = **0.30**（strict）| 對「沒見過的新藝人預測單首歌紅度」這個更嚴格的任務，誠實天花板比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格 |
+| 6 | （延伸分支）拿到 song_hotttnesss 後做 song-level + GroupKFold | R² = **0.29**（strict）| 對「沒見過的新藝人預測單首歌紅度」這個更嚴格的任務，誠實天花板比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格 |
+| 7 | 進一步驗證：在 GroupKFold 下，CatBoost + 7,538 tags 沒比 HistGB + top-1000 好 | R² 仍 0.29 | **artist-level 看到的「CatBoost + 全 vocabulary +0.07」其中大半是 leakage**——一旦公平評估就消失 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -840,12 +841,36 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 - 我們 strict_song R² = **0.290**
 - **多出來的 0.046 是「per-track 特徵真正貢獻的 within-artist 訊號」**——印證 step 12 的猜測
 
-### 13.6 結論補充
+### 13.6 步驟 14：song-level CatBoost + text features
+
+`analysis/14_song_level_catboost.py`
+
+把 step 13 的 HistGB + top-1000 multi-hot 換成 CatBoost + 全 7,538 tags 的 `text_features`，其餘設定（GroupKFold by artist_id、相同 audio + tl + year/duration + 3 個 leak 選項）不變。
+
+| Config | HistGB top-1000 (step 13) | CatBoost text(7538) (step 14) | Δ |
+|---|---:|---:|---:|
+| strict_song | 0.290 | **0.286** | **−0.004** |
+| full_song | 0.317 | **0.314** | **−0.003** |
+
+**結果反直覺**：song-level + GroupKFold 下，CatBoost + 7,538 tags **沒有比** HistGB top-1000 更好，甚至略差。
+
+#### 為什麼跟 artist-level 結果完全相反？
+
+| 因素 | artist-level（step 11）| song-level + GroupKFold（step 14）|
+|---|---|---|
+| 「紅藝人有更多 tag」訊號 | 模型可從訓練資料記住此關聯 | GroupKFold 把訊號 neutralize 掉 |
+| 稀有 tag 的價值 | 可作 artist 識別線索 | 對未見藝人沒幫助、反而是 overfit 風險 |
+| Vocabulary 大小 | 30 → 7,538 帶 +0.07 | 1,000 → 7,538 幾乎不動 |
+
+**重要修正**：之前在第 11–12 節說「CatBoost 的功勞 95 % 是 vocabulary」這句話需要打折——一旦改用 GroupKFold 對「沒見過的新藝人」公平評估，**vocabulary 的優勢大部分消失**。原本 artist-level 看到的 +0.07 提升，其中 **大半其實是「Echo Nest 給更紅藝人更多 tag」的隱性 leakage**。
+
+### 13.7 結論補充
 
 | 「對新藝人預測一首歌紅度」誠實天花板 | R² |
 |---|---:|
 | 純藝人層級填均值（理論上界，純 between）| ~0.244 |
-| 加 per-track audio + tl + year/duration | **0.290** |
+| 加 per-track audio + tl + year/duration（HistGB top-1000）| **0.290** |
+| 同上 + 換 CatBoost + 7,538 tags（**沒變好**）| 0.286 |
 | 再加 leak 特徵（n_tracks 等） | 0.317 |
 
 **0.05 的提升來自「audio + tl per track」**——比 step 12 在 artist-level 加同樣特徵的 +0.005 高 10 倍。確認**這些 track-level 特徵在 song level 才有意義**。
@@ -856,8 +881,8 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 |---|---:|
 | 預測藝人 hotness（strict + 30 tags） | 0.36 |
 | 預測藝人 hotness（strict + 1000 tags） | 0.43 |
-| 預測藝人 hotness（full + 7,538 tags + CatBoost）| 0.47 |
-| **預測單首歌 hotness 對新藝人（strict + GroupKFold）** | **0.30** |
+| 預測藝人 hotness（full + 7,538 tags + CatBoost，含 leakage）| 0.47 |
+| **預測單首歌 hotness 對新藝人（strict + GroupKFold）** | **0.29**（HistGB top-1000 = CatBoost text）|
 | **同上但允許 leak** | **0.32** |
 
 ---
@@ -938,6 +963,9 @@ python analysis/12_track_level_features.py  # ~8 min
 
 # 13. Song-level pipeline + GroupKFold
 python analysis/13_song_level_pipeline.py   # ~20 min
+
+# 14. Song-level CatBoost + text features
+python analysis/14_song_level_catboost.py   # ~18 min
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -1017,6 +1045,7 @@ python analysis/13_song_level_pipeline.py   # ~20 min
     ├── 11_song_vs_artist_hotness.py      (branch: song-hotness)
     ├── 12_track_level_features.py        (branch: song-hotness)
     ├── 13_song_level_pipeline.py         (branch: song-hotness)
+    ├── 14_song_level_catboost.py         (branch: song-hotness)
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -1060,6 +1089,8 @@ python analysis/13_song_level_pipeline.py   # ~20 min
         │   └── extreme_cases.csv
         ├── 12_track_level_features/      (branch: song-hotness)
         │   └── benchmark_track_level.csv
-        └── 13_song_level_pipeline/       (branch: song-hotness)
-            └── benchmark_song_level.csv
+        ├── 13_song_level_pipeline/       (branch: song-hotness)
+        │   └── benchmark_song_level.csv
+        └── 14_song_level_catboost/       (branch: song-hotness)
+            └── benchmark_song_catboost.csv
 ```
