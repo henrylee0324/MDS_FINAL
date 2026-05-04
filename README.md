@@ -20,13 +20,14 @@
 - 每位藝人有 **216 個從聲音計算出來的數值**（音色、頻率組成、和弦結構等）
 - 加上 **基本資訊**：年代、歌曲長度、被收錄了幾首歌、曲風標籤
 
-### 三個最重要的發現
+### 四個最重要的發現
 
 | | 發現 | 數字 | 白話 |
 |---|---|---|---|
 | 1 | 光用聲音預測，效果很差 | R² = 0.07 | 152 個聲音特徵加起來只能解釋「紅不紅」變化的 **7 %** |
 | 2 | 加入年代、歌曲數等基本資訊後大幅進步 | R² = 0.42 | 但這 0.42 裡有「作弊成分」（見下） |
-| 3 | 拿掉作弊特徵後的誠實天花板 | R² = 0.36（複雜模型）<br/>R² = 0.24（簡單模型） | 對沒被收錄過的新藝人，最多就只能預測這麼準 |
+| 3 | 拿掉作弊特徵後的誠實天花板 | R² = 0.36（複雜模型）<br/>R² = 0.24（簡單模型） | 對沒被收錄過的新藝人，這是用「簡化版曲風標籤」能達到的上限 |
+| 4 | 用 **CatBoost + 全部 7,538 個曲風標籤** | R² = 0.47（含作弊）<br/>R² = 0.43（誠實版） | 之前只用最熱門的 30 個，扔掉了 99.6 % 的標籤資訊 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -38,13 +39,13 @@
 
 ### 一句話結論
 
-> **「藝人紅不紅」主要不是被「歌好不好聽」決定的，而是被「曝光、年代、曲風、行銷」決定的。** 152 個音訊特徵加起來，比不上 5 個基本資訊欄位（年代、時長、歌曲數、標籤數）。
+> **「藝人紅不紅」主要不是被「歌好不好聽」決定的，而是被「曲風標籤、曝光、年代」決定的。** 把 152 個音訊特徵全部加起來，比不上**單一個欄位的 7,538 個曲風標籤文字**。
 
 ### 想看技術細節？
 
 - 每個步驟都分成「**白話版**」與「**技術細節**」兩段
-- 看到看不懂的術語，跳到最後的「[14. 名詞解釋](#14-名詞解釋)」
-- 想複製整個實驗，看「[12. 重現方式](#12-重現方式)」
+- 看到看不懂的術語，跳到最後的「[15. 名詞解釋](#15-名詞解釋)」
+- 想複製整個實驗，看「[13. 重現方式](#13-重現方式)」
 
 ---
 
@@ -598,16 +599,106 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 
 ---
 
-## 11. 最終結論
+## 11. CatBoost 與全 vocabulary genre tags
 
-> **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.42 的版本（含 leakage），但**真正部署到新藝人**要用 R²=0.36（非線性）或 R²=0.24（線性）的誠實版本。**核心洞察是：藝人熱度由曝光、年代、曲風驅動，音訊本身只是次要訊號**。
+> **白話版**：之前所有實驗都只用「最熱門的 30 個 genre 標籤」，因為 HistGB / Ridge 沒辦法直接吃 7,544 個原始 tag（會 OOM）。CatBoost 的 `text_features` 機制可以原生處理，把全部 tag 攤開來用一次。結果：**HistGB strict (top-30) 0.357 → CatBoost strict + 全部 tags 0.430**（+0.073），**HistGB full 0.422 → CatBoost full + 全部 tags 0.470**（+0.048）。
+>
+> 這個改善的真正來源不是 CatBoost 演算法比較強，而是**之前丟掉了 99.6 % 的 tag 資訊**（30 / 7,538 = 0.4 %）。
+
+`analysis/08_catboost.py`
+
+### 11.1 4 個配置的 5-fold CV R²
+
+| Config | n cols | tag 範圍 | CV R² | vs HistGB |
+|---|---:|---:|---:|---:|
+| HistGB strict (top-30，參考) | 185 | 30 | 0.357 | — |
+| CatBoost strict (top-30) | 185 | 30 | 0.367 | +0.010 |
+| **CatBoost strict + 全 tags** | **156** | **7,538** | **0.430** | **+0.073** ⭐ |
+| HistGB full (top-30，參考) | 187 | 30 | 0.422 | — |
+| CatBoost full (top-30) | 187 | 30 | 0.428 | +0.006 |
+| **CatBoost full + 全 tags** | **158** | **7,538** | **0.470** | **+0.048** ⭐ |
+
+完整數值見 `results/08_catboost/benchmark_catboost.csv`。
+
+### 11.2 CatBoost 本身 vs vocabulary 大小：拆解貢獻
+
+兩個維度交叉拆解（同一行同一個 vocabulary，同一列同一個模型）：
+
+| | top-30 multi-hot | 全部 7,538 tags | Δ from vocab |
+|---|---:|---:|---:|
+| HistGB strict / full | 0.357 / 0.422 | （HistGB 無法吃文字）| — |
+| CatBoost strict / full | 0.367 / 0.428 | 0.430 / 0.470 | **+0.063 / +0.042** |
+| Δ from model | +0.010 / +0.006 | — | |
+
+- **換模型（HistGB → CatBoost）**：+0.006 ~ +0.010
+- **換 vocabulary（top-30 → 全部 7,538）**：+0.042 ~ +0.073
+
+vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判斷「真正瓶頸是 feature engineering，不是 algorithm」。
+
+### 11.3 CatBoost 特徵重要度（top 15）
+
+訓練在最佳配置（full + text）上：
+
+| Importance | Category | Feature |
+|---:|---|---|
+| 32.68 | **genre_text** | **`term_norm`（單一欄包 7,538 個 tags）** |
+| 14.73 | numeric | n_tracks |
+| 13.15 | numeric | n_genres |
+| 7.55 | numeric | year_known_ratio |
+| 4.54 | numeric | year_mean |
+| 0.76 | numeric | duration_mean |
+| 0.71 | audio:marsyas | Chroma_G# (Std × Std) |
+| 0.68 | audio:marsyas | Chroma_A# (Std × Std) |
+| 0.66 | audio:Area_MoM | Std_2 |
+| 0.57 | audio:LPC | Avg_4 |
+| 0.56 | audio:marsyas | Chroma_F# (Std × Mean) |
+| 0.46 | audio:MFCC_simple | Std_1 |
+| 0.42 | audio:LPC | Avg_2 |
+| 0.42 | audio:lowlevel | Fraction_Of_Low_Energy_Windows |
+| 0.41 | audio:marsyas | Chroma_G# (Std × Mean) |
+
+完整列表見 `results/08_catboost/feature_importance_catboost.csv`。
+
+### 11.4 類別累計重要度
+
+| Category | sum | n columns | per-column |
+|---|---:|---:|---:|
+| numeric | 40.73 | 5 | 8.15 |
+| **genre_text** | **32.68** | **1** | **32.68** |
+| audio:marsyas | 11.57 | 72 | 0.16 |
+| audio:MFCC_simple | 4.80 | 26 | 0.18 |
+| audio:LPC | 4.34 | 18 | 0.24 |
+| audio:Area_MoM | 3.04 | 20 | 0.15 |
+| audio:lowlevel | 2.85 | 16 | 0.18 |
+
+> **`term_norm` 一個欄位的重要度（32.68）超過全部 152 個音訊特徵的總和（26.59）**。這就是為什麼把 vocabulary 從 30 攤到 7,538 帶來這麼大的提升。
+
+完整類別表見 `results/08_catboost/feature_importance_catboost_by_category.csv`。
+
+### 11.5 ⚠️ 「全部 tags」算 leakage 嗎？
+
+部分算。Echo Nest 演算法給「越紅的藝人」越多細節 tag——所以 tag 數量本身就含有 popularity 訊號。但相較於 `n_tracks` / `n_genres`，**tag 內容（hip hop / jazz / hardcore）比 tag 計數更接近「歌的曲風本質」**。
+
+- 對「Echo Nest 已分析過 tag 的藝人」：CatBoost text **0.470** 是合理的天花板
+- 對「完全冷啟動的新藝人」（沒任何 tag）：tag 不存在，**0.470 高估**
+- 對「Spotify / Last.fm 等其他平台仍有 tag」的藝人：介於兩者之間（半合法）
+
+`term_norm` 在 strict_185（已移除 n_tracks / n_genres）下仍能達到 **0.430**，比 strict 乾淨的 HistGB 0.357 好了 0.073——這個改進的大部分來自「tag 內容的曲風訊號」，而不只是 tag 數量這個 popularity proxy。
+
+---
+
+## 12. 最終結論
+
+> **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.47 的 CatBoost 版本（含 leakage），但**真正部署到新藝人**要用 R²=0.43（CatBoost 誠實 + 全 tags）或 R²=0.24（線性誠實）的版本。**核心洞察是：藝人熱度由「曲風標籤、曝光、年代」三件事驅動，音訊本身只是次要訊號**——用 7,538 個原始 tag 比 152 個音訊特徵的訊息量還大。
 
 
 
 | 場景 | 推薦模型 | R² |
 |---|---|---:|
+| **絕對最強 R²**（含 leakage） | **CatBoost full + 7,538 tags** | **0.47** |
 | 描述 MSD 內藝人的 hotness | HistGB tuned on full 187 | 0.42 |
-| **預測新藝人** hotness | HistGB tuned on strict 185 | **0.36** |
+| **預測新藝人**（CatBoost + 全 tags） | **CatBoost strict + 7,538 tags** | **0.43** |
+| 預測新藝人（top-30 tag 限制下） | HistGB tuned on strict 185 | 0.36 |
 | **可解釋線性 baseline** | RidgeCV on strict 185（α=1） | **0.24** |
 | 純音訊線性下界 | Ridge α=100 on 152 audio | 0.08 |
 | 純音訊非線性上界 | HistGB tuned on 152 audio | 0.21 |
@@ -617,12 +708,13 @@ artist 紅 → 商業價值高 → Echo Nest 收錄更多歌 → n_tracks 高
 1. **音訊單獨對藝人 hotness 的線性預測力極低（R² ≈ 0.08）**。共線性處理（VIF / PCA / Ridge）只能將其推到 0.084，差距無法靠線性方法跨越。
 2. **5 個 metadata 特徵（year/duration/n_tracks/n_genres/year_known_ratio）的線性 R²（0.26）就遠超 152 個音訊特徵**。Hotness 主要被「曝光度 / 年代 / 標籤量」驅動，不是音訊本身。
 3. **`n_tracks` 與 `n_genres` 是 popularity 的反向因果代理**——把它們從 187 維裡拿掉，HistGB R² 從 0.42 降到 0.36（−0.06），這 0.06 是「假」的預測力。
-4. **誠實線性模型最終為 RidgeCV on strict 185 → R² = 0.24**，0.36 是同一資料的非線性天花板。
+4. **誠實線性模型最終為 RidgeCV on strict 185 → R² = 0.24**，0.36 是同一資料 top-30 tag 限制下的非線性天花板。
 5. 移除 leakage 後，**Area Method of Moments、Marsyas Chroma PeakRatio、Spectral Variability 是音訊中最有價值的子集合**——這也是線性係數重新洗牌時浮上來的特徵。
+6. **真正能突破 R² 0.36 的不是換模型，而是把 genre 詞彙表從 30 開到 7,538**。CatBoost 的 `text_features` 把單一個 `term_norm` 欄位的重要度推到 32.7（超過全部 152 個音訊特徵總和 26.6），使 strict 0.36 → 0.43、full 0.42 → 0.47。**主要瓶頸是 feature engineering，不是 algorithm**。
 
 ---
 
-## 12. 重現方式
+## 13. 重現方式
 
 ```powershell
 # 1. 從 SQLite 聚合到藝人層級
@@ -645,6 +737,9 @@ python analysis/06_record_feature_sets.py   # <1s
 
 # 7. 強化嚴謹度（iterative VIF / Lasso 掃描 / stratified CV）
 python analysis/07_rigor_strengthening.py   # ~94s
+
+# 8. CatBoost：用全 vocabulary 7,538 個 genre tags（需 pip install catboost）
+python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 final fit）
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -653,7 +748,7 @@ python analysis/07_rigor_strengthening.py   # ~94s
 
 ---
 
-## 13. 已知限制
+## 14. 已知限制
 
 1. **`song_hotttnesss` 不在本 DB**——只能用 `artist_hotttnesss` 作為熱度代理；同藝人的不同歌存在差異（8.4 % 藝人，median spread 0.028），以 `AVG` 聚合時抹平了這個變異。
 2. **`year_mean` 對 32 % 的藝人是 NaN**（所有歌 `year = 0`），用 median 補值，可能稀釋年代訊號。
@@ -664,7 +759,7 @@ python analysis/07_rigor_strengthening.py   # ~94s
 
 ---
 
-## 14. 名詞解釋
+## 15. 名詞解釋
 
 | 術語 | 中文 | 白話解釋 |
 |---|---|---|
@@ -697,7 +792,7 @@ python analysis/07_rigor_strengthening.py   # ~94s
 
 ---
 
-## 15. 檔案結構
+## 16. 檔案結構
 
 ```
 .
@@ -716,6 +811,7 @@ python analysis/07_rigor_strengthening.py   # ~94s
     ├── 05_leakage_check.py
     ├── 06_record_feature_sets.py
     ├── 07_rigor_strengthening.py
+    ├── 08_catboost.py
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -739,9 +835,13 @@ python analysis/07_rigor_strengthening.py   # ~94s
         │   ├── feature_sets_summary.csv
         │   ├── feature_sets_long.csv
         │   └── feature_sets_wide.csv
-        └── 07_rigor_strengthening/
-            ├── vif_iterative_trace.csv
-            ├── vif_iterative_survivors.csv
-            ├── lasso_active_sets.csv
-            └── stratified_cv_benchmark.csv
+        ├── 07_rigor_strengthening/
+        │   ├── vif_iterative_trace.csv
+        │   ├── vif_iterative_survivors.csv
+        │   ├── lasso_active_sets.csv
+        │   └── stratified_cv_benchmark.csv
+        └── 08_catboost/
+            ├── benchmark_catboost.csv
+            ├── feature_importance_catboost.csv
+            └── feature_importance_catboost_by_category.csv
 ```
