@@ -29,6 +29,7 @@
 | 3 | 拿掉作弊特徵後的誠實天花板 | R² = 0.36（複雜模型）<br/>R² = 0.24（簡單模型） | 對沒被收錄過的新藝人，這是用「簡化版曲風標籤」能達到的上限 |
 | 4 | 用 **CatBoost + 全部 7,538 個曲風標籤** | R² = 0.47（含作弊）<br/>R² = 0.43（誠實版） | 之前只用最熱門的 30 個，扔掉了 99.6 % 的標籤資訊 |
 | 5 | 進一步驗證：HistGB 配 top-1000 multi-hot 也能達 R²=0.43 | — | **CatBoost 的功勞 95 % 是 vocabulary，5 % 是演算法**——換大字彙比換模型重要 6–10 倍 |
+| 6 | （延伸分支）拿到 song_hotttnesss 後做 song-level + GroupKFold | R² = **0.30**（strict）| 對「沒見過的新藝人預測單首歌紅度」這個更嚴格的任務，誠實天花板比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -45,8 +46,8 @@
 ### 想看技術細節？
 
 - 每個步驟都分成「**白話版**」與「**技術細節**」兩段
-- 看到看不懂的術語，跳到最後的「[16. 名詞解釋](#16-名詞解釋)」
-- 想複製整個實驗，看「[14. 重現方式](#14-重現方式)」
+- 看到看不懂的術語，跳到最後的「[17. 名詞解釋](#17-名詞解釋)」
+- 想複製整個實驗，看「[15. 重現方式](#15-重現方式)」
 
 ---
 
@@ -749,7 +750,119 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 
 ---
 
-## 13. 最終結論
+## 13. song_hotttnesss 延伸實驗（branch: `song-hotness`）
+
+> **白話版**：到目前為止所有實驗都用 `artist_hotttnesss` 當目標，因為本 DB 的 `song_hotttnesss` 已被預處理移除。這一節記錄一段在 `song-hotness` 分支上的探索：到 MSD 官網下載 `msd_summary_file.h5`（約 316 MB）把 `song_hotttnesss` 拿回來，重做整條 pipeline。
+>
+> **核心發現**：song-level 的「對新藝人預測單首歌紅度」誠實天花板 R² ≈ 0.30，比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格的結果。
+
+### 13.1 步驟 10：到網路上抓 song_hotttnesss
+
+`analysis/10_song_hotness_extract.py`
+
+- 從 http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5 下載（316 MB，重定向到 millionsongdataset.com）
+- 用 PyTables 讀 H5 中的 `/metadata/songs`、`/analysis/songs`、`/musicbrainz/songs` 三表，按 row 對齊抽出每首歌的 `song_hotttnesss` 加上 11 個 track-level Echo Nest 分析欄（loudness, tempo, key, mode, time_signature, durations, fade times）
+
+| 指標 | 值 |
+|---|---:|
+| 1M 首歌中 `song_hotttnesss > 0` | **457,205**（45.7 %） |
+| 與我們現有 pipeline tracks 的交集 | 448,552 |
+| 至少有 1 首有效歌的 pipeline 藝人 | 30,401 / 39,292 |
+| 至少 5 首 | 20,369 / 39,292 |
+
+⚠️ `danceability` 與 `energy` 全部為 0（Echo Nest 從未填寫，已知問題）。
+
+完整 coverage 與 join 報告見 `results/10_song_hotness_extract/coverage_report.csv` 與 `join_with_artist_pipeline.csv`。
+
+### 13.2 步驟 11：診斷——`song_hotttnesss` 多帶多少訊息？
+
+`analysis/11_song_vs_artist_hotness.py`
+
+如果同一藝人各歌的 hotness 幾乎相同，那 `song_hotttnesss` ≈ `artist_hotttnesss + 雜訊`，換目標毫無收穫。實測：
+
+| 統計量 | 值 | 意義 |
+|---|---:|---|
+| 每藝人歌之間 std 中位數 | 0.087 | 中等差異 |
+| Within-artist 變異佔總變異 | **42.8 %** | 不可忽略 |
+| Between-artist 變異佔總變異 | 57.2 % | 仍然主導 |
+| **ICC**（intraclass correlation） | **0.572** | 「值得做 song-level」 |
+| Pearson r(per-artist mean, artist_hot) | 0.62 | 不是同一個東西 |
+| 60 % 藝人 \|song_mean − artist_hot\| > 0.05 | — | 兩者普遍有差距 |
+
+**極端案例**：
+- ARRH63Y artist_hot=1.08 但有歌只 0.30 → 巨星的冷門曲（dud track）
+- ARVGBDX artist_hot=0.38 但有歌達 1.00 → 普通藝人的代表作（hidden hit）
+
+### 13.3 步驟 12：把 track-level Echo Nest 特徵加進 artist-level pipeline
+
+`analysis/12_track_level_features.py`
+
+把 step 10 拿到的 11 個 track-level 欄做 per-artist 聚合（mean 為主，加 mode_fraction 等），加進現有 HistGB top-1000 baseline：
+
+| Config | top-1000 only | + 12 個 track-level | Δ |
+|---|---:|---:|---:|
+| strict | 0.428 | **0.433** | +0.005 |
+| full | 0.462 | **0.463** | +0.002 |
+
+> **結論**：聚合到藝人層級後，per-track 訊號被平均掉，貢獻幾乎為零。提示：這些特徵在 song-level（不被聚合）時應該才會起作用。
+
+### 13.4 步驟 13：song-level pipeline（換目標 + GroupKFold）
+
+`analysis/13_song_level_pipeline.py`
+
+**樣本單位變成「每首歌一列」**：446,317 列 / 30,332 個藝人。
+**5-fold 改用 `GroupKFold(artist_id)`**——同藝人的所有歌都進同一 fold，模型測試的是「**完全沒見過的新藝人的歌**」。
+特徵：
+- 152 audio per-track（**不再聚合**）
+- 10 track-level Echo Nest（per-track）
+- year, duration（per-track）
+- top-1000 genre multi-hot（per-artist 常數，每首歌複製）
+- 額外 3 個 leak 特徵（full only）
+
+| Config | n_feat | R² | std |
+|---|---:|---:|---:|
+| **strict_song** | 1,165 | **0.290** | 0.009 |
+| **full_song** | 1,168 | **0.317** | 0.005 |
+
+### 13.5 為什麼 song-level R² 比 artist-level 低？
+
+不是模型變爛，是**任務變嚴格**：
+
+| 原因 | 細節 |
+|---|---|
+| Target std 大 6 倍 | song_hot std 0.234 vs artist_hot std 0.088 → R² 分母變大 |
+| GroupKFold 嚴格 | 預測「完全沒見過的新藝人」，藝人層級 KFold 自動等價於 GroupKFold（每藝人一列），song-level 才有差異 |
+| Within-artist 變異難抓 | 43 % 的 song hotness 變異是同藝人內的，需要每首歌不同特徵才能解釋 |
+
+**變異數分解論證**：
+
+- 純藝人層級資訊填均值 → R²(song) 上界 = `R²(artist) × ICC = 0.428 × 0.572 ≈ 0.244`
+- 我們 strict_song R² = **0.290**
+- **多出來的 0.046 是「per-track 特徵真正貢獻的 within-artist 訊號」**——印證 step 12 的猜測
+
+### 13.6 結論補充
+
+| 「對新藝人預測一首歌紅度」誠實天花板 | R² |
+|---|---:|
+| 純藝人層級填均值（理論上界，純 between）| ~0.244 |
+| 加 per-track audio + tl + year/duration | **0.290** |
+| 再加 leak 特徵（n_tracks 等） | 0.317 |
+
+**0.05 的提升來自「audio + tl per track」**——比 step 12 在 artist-level 加同樣特徵的 +0.005 高 10 倍。確認**這些 track-level 特徵在 song level 才有意義**。
+
+跨方法總結（不同任務的不同天花板）：
+
+| 任務 | 預期 R² 上限 |
+|---|---:|
+| 預測藝人 hotness（strict + 30 tags） | 0.36 |
+| 預測藝人 hotness（strict + 1000 tags） | 0.43 |
+| 預測藝人 hotness（full + 7,538 tags + CatBoost）| 0.47 |
+| **預測單首歌 hotness 對新藝人（strict + GroupKFold）** | **0.30** |
+| **同上但允許 leak** | **0.32** |
+
+---
+
+## 14. 最終結論
 
 > **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.47 的 CatBoost 版本（含 leakage），但**真正部署到新藝人**要用 R²=0.43（CatBoost 誠實 + 全 tags）或 R²=0.24（線性誠實）的版本。**核心洞察是：藝人熱度由「曲風標籤、曝光、年代」三件事驅動，音訊本身只是次要訊號**——用 7,538 個原始 tag 比 152 個音訊特徵的訊息量還大。
 
@@ -776,7 +889,7 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 
 ---
 
-## 14. 重現方式
+## 15. 重現方式
 
 ```powershell
 # 1. 從 SQLite 聚合到藝人層級
@@ -807,13 +920,33 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
 python analysis/09_vocab_scaling.py         # ~7 min
 ```
 
+### song-hotness 分支延伸實驗
+
+```powershell
+# 切到延伸分支
+git checkout song-hotness
+
+# 10. 從 millionsongdataset.com 下載 H5（316 MB），抽取 song_hotttnesss 與 track-level 特徵
+curl -L -o data/msd_summary_file.h5 "http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5"
+python analysis/10_song_hotness_extract.py  # ~45s
+
+# 11. 診斷 song_hotttnesss 內部變異
+python analysis/11_song_vs_artist_hotness.py # <1s
+
+# 12. Track-level Echo Nest 特徵加進 artist-level pipeline
+python analysis/12_track_level_features.py  # ~8 min
+
+# 13. Song-level pipeline + GroupKFold
+python analysis/13_song_level_pipeline.py   # ~20 min
+```
+
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
 
 所有腳本以 `data/MSD_with_all_features.db` 作為唯一原始資料來源；中間 cache 寫到 `analysis/cache/`，最終結果寫到 `analysis/results/`。
 
 ---
 
-## 15. 已知限制
+## 16. 已知限制
 
 1. **`song_hotttnesss` 不在本 DB**——只能用 `artist_hotttnesss` 作為熱度代理；同藝人的不同歌存在差異（8.4 % 藝人，median spread 0.028），以 `AVG` 聚合時抹平了這個變異。
 2. **`year_mean` 對 32 % 的藝人是 NaN**（所有歌 `year = 0`），用 median 補值，可能稀釋年代訊號。
@@ -824,7 +957,7 @@ python analysis/09_vocab_scaling.py         # ~7 min
 
 ---
 
-## 16. 名詞解釋
+## 17. 名詞解釋
 
 | 術語 | 中文 | 白話解釋 |
 |---|---|---|
@@ -846,6 +979,8 @@ python analysis/09_vocab_scaling.py         # ~7 min
 | **Permutation Importance** | 排列重要度 | 計算特徵重要度的方法：把某個特徵的值隨機打亂，看模型 R² 掉多少；掉越多 = 越重要。 |
 | **資料洩漏** | Data Leakage | 用「結果相關」的特徵當輸入，模型看似神準但其實是「作弊」，對新案例無用。本實驗的 `n_tracks` / `n_genres` 就是典型例子。 |
 | **Sentinel** | 哨兵值 | 用一個特殊值（例如 -1, 0）表示「資料缺失」。要記得過濾，否則會被當成真實值。 |
+| **ICC** | 組內相關係數 | 介於 0 到 1。在「同藝人各歌共享 hotness」這類巢狀資料中，ICC = between-group variance / total variance。1 = 群組（藝人）完全決定數值；0 = 群組無解釋力。本資料 ICC ≈ 0.57，57 % 在藝人間、43 % 在藝人內。 |
+| **GroupKFold** | 群組分折交叉驗證 | 比 KFold 更嚴格的 CV：把同一群組（這裡是同藝人）的所有列放進同一 fold，避免「模型在訓練時看過 Beyoncé 1 首歌、測試時看到她另一首」這種資訊洩漏。預測「未見過的新藝人」必用此法。 |
 | **Echo Nest** | — | 一家音樂分析公司（後被 Spotify 收購），本資料的熱度分數和曲風標籤都來自他們的演算法。 |
 | **MSD** | Million Song Dataset | 哥倫比亞大學釋出的 100 萬首歌音訊特徵資料集，本實驗的原始資料。 |
 | **MFCC** | 梅爾頻率倒譜係數 | 一種描述音色（timbre）的特徵，是語音/音樂處理的標準工具。 |
@@ -857,7 +992,7 @@ python analysis/09_vocab_scaling.py         # ~7 min
 
 ---
 
-## 17. 檔案結構
+## 18. 檔案結構
 
 ```
 .
@@ -878,6 +1013,10 @@ python analysis/09_vocab_scaling.py         # ~7 min
     ├── 07_rigor_strengthening.py
     ├── 08_catboost.py
     ├── 09_vocab_scaling.py
+    ├── 10_song_hotness_extract.py        (branch: song-hotness)
+    ├── 11_song_vs_artist_hotness.py      (branch: song-hotness)
+    ├── 12_track_level_features.py        (branch: song-hotness)
+    ├── 13_song_level_pipeline.py         (branch: song-hotness)
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -910,6 +1049,17 @@ python analysis/09_vocab_scaling.py         # ~7 min
         │   ├── benchmark_catboost.csv
         │   ├── feature_importance_catboost.csv
         │   └── feature_importance_catboost_by_category.csv
-        └── 09_vocab_scaling/
-            └── benchmark_vocab_scaling.csv
+        ├── 09_vocab_scaling/
+        │   └── benchmark_vocab_scaling.csv
+        ├── 10_song_hotness_extract/      (branch: song-hotness)
+        │   ├── coverage_report.csv
+        │   └── join_with_artist_pipeline.csv
+        ├── 11_song_vs_artist_hotness/    (branch: song-hotness)
+        │   ├── diagnostics.csv
+        │   ├── per_artist_stats.csv
+        │   └── extreme_cases.csv
+        ├── 12_track_level_features/      (branch: song-hotness)
+        │   └── benchmark_track_level.csv
+        └── 13_song_level_pipeline/       (branch: song-hotness)
+            └── benchmark_song_level.csv
 ```
