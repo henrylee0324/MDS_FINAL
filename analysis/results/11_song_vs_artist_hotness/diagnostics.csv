@@ -1,0 +1,11 @@
+metric,value
+n_songs (both hotness valid),448552.0
+n_artists (>=1 valid song),30372.0
+"n_artists (>=5 valid songs, used here)",20345.0
+within-std median,0.08656069839983549
+within-std p75,0.11762480594288571
+between-artist variance share,0.5719133859337292
+within-artist variance share,0.428086614066271
+ICC,0.5719133859337292
+"pearson(song_mean, artist_hot)",0.6178424793362565
+"spearman(song_mean, artist_hot)",0.6166204364049684
