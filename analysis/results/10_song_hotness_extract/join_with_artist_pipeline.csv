@@ -1,0 +1,8 @@
+metric,value
+pipeline artists (artist_hotttnesss > 0),39292
+pipeline tracks  (artist_hotttnesss > 0),949460
+H5 tracks with song_hotttnesss > 0,457205
+tracks in BOTH (overlap),448552
+artists with >= 1 song hotness,30401
+artists with >= 5 song hotness,20369
+artists with >= 10 song hotness,15402
