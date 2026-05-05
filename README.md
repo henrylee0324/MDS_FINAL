@@ -85,6 +85,7 @@
 | 5 | 進一步驗證：HistGB 配 top-1000 multi-hot 也能達 R²=0.43 | — | **CatBoost 的功勞 95 % 是 vocabulary，5 % 是演算法**——換大字彙比換模型重要 6–10 倍 |
 | 6 | （延伸分支）拿到 song_hotttnesss 後做 song-level + GroupKFold | R² = **0.29**（strict）| 對「沒見過的新藝人預測單首歌紅度」這個更嚴格的任務，誠實天花板比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格 |
 | 7 | 進一步驗證：在 GroupKFold 下，CatBoost + 7,538 tags 沒比 HistGB + top-1000 好 | R² 仍 0.29 | **artist-level 看到的「CatBoost + 全 vocabulary +0.07」其中大半是 leakage**——一旦公平評估就消失 |
+| 8 | 拿 MSD 10K 子集測試「per-segment 音訊細節」（完整 280 GB 才有的東西）會不會突破 | 對純音訊：+0.019；對完整 pipeline：**+0.000** | **答案明確：完整 MSD 拿來也沒用**——hotness 預測的瓶頸是「社會/行銷」不是「音訊細節」 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -976,6 +977,49 @@ http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/m
 
 完整數值見 `results/15_song_level_importance/`：`block_importance.csv`、`single_feature_importance.csv`、`audio_subfamily_importance.csv`。
 
+### 13.9 步驟 16–17：完整 MSD per-song HDF5 的 segment-level 特徵會不會突破？
+
+`analysis/16_subset_segments_extract.py` + `analysis/17_subset_segments_model.py`
+
+到此為止，我們所有「audio 特徵」都是「整段彙總統計」（152 個欄位都是 mean/std/PeakRatio 等）。完整 MSD 的 per-song HDF5 還有 **per-segment 級別**的原始 Echo Nest 分析陣列（`segments_timbre` ~500 × 12、`segments_pitches` ~500 × 12、`segments_loudness_max`、`bars_*`、`beats_*`、`sections_*`、`tatums_*`），這些都不在 `msd_summary_file.h5` 裡——只在每首歌的獨立 .h5 檔。
+
+**問題**：如果我們有完整 280 GB 的 MSD，這些 per-segment 細節會不會大幅推高 song-level R²？
+
+**做法**：完整 MSD 的 S3 bucket 已關閉公開讀取（403 Forbidden），但 [10K 子集](http://labrosa.ee.columbia.edu/~dpwe/tmp/millionsongsubset.tar.gz)（1.85 GB）仍可下載。在這 10K 子集上：
+
+- step 16 抽 101 個 segment-derived 特徵（timbre per-dim mean/std × 24、timbre 三段式時間演化 × 36、chroma mean/std × 24、loudness dynamics × 7、rhythm regularity × 7、structure × 3）
+- step 17 在子集 ∩ pipeline ∩ song_hot>0 = **4,148 首歌 / 2,116 藝人**上做 baseline vs +segment 對照
+
+**結果（5-fold GroupKFold by artist_id）**：
+
+| 配置 | n_feat | R² | std |
+|---|---:|---:|---:|
+| audio_only_152 | 152 | 0.071 | ±0.026 |
+| **audio + 101 segments** | 253 | **0.090** | ±0.018 |
+| segment-only + yd | 104 | **0.151** | ±0.025 |
+| strict baseline | 1,165 | 0.249 | ±0.023 |
+| strict + segment | 1,266 | **0.247** | ±0.027 |
+| full baseline | 1,168 | 0.254 | ±0.028 |
+| full + segment | 1,269 | **0.254** | ±0.023 |
+
+**Δ R² 的 headline**：
+
+| 比較 | Δ | 解讀 |
+|---|---:|---|
+| `audio + seg` vs `audio_only` | **+0.019** | 純音訊任務下 segments 確實多帶訊號（剛好在 noise ±0.026 邊緣）|
+| `strict + seg` vs `strict baseline` | **−0.002** | 加了 genre + metadata 後，segments 完全沒額外貢獻 |
+| `full + seg` vs `full baseline` | **+0.000** | 同上 |
+
+**結論**：per-segment 音訊分析確實比我們現有的 152 個彙總統計**多帶 ~2 倍訊號**（segment_only 0.151 vs audio_only 0.071），但**一旦 genre tag + year 進場就完全冗餘**。
+
+> 對「**完整 MSD 280 GB 會不會大幅突破？**」的回答：**不會**。即使有 100 % 的 per-segment 音訊資料，在現有 metadata 基礎上加上去 R² 移動 ≈ 0。song-level 誠實天花板會大概停留在 R² ≈ 0.29–0.30。
+>
+> 預測 hotness 的真正瓶頸是**「hotness 本質上是社會/行銷現象，不是音訊現象」**，不是「我們缺音訊細節」。
+
+⚠️ **樣本大小限制**：n=4,148 的 CV std ±0.02–0.03，所以 |Δ| < 0.04 的差距無法分辨。但 `strict + seg ≈ baseline` 的差距遠小於 noise，這個結論很穩。
+
+完整數值見 `results/17_subset_segments_model/benchmark_subset.csv`。
+
 ---
 
 ## 14. 最終結論
@@ -1059,6 +1103,14 @@ python analysis/14_song_level_catboost.py   # ~18 min
 
 # 15. Song-level feature importance (block + single perm on hold-out)
 python analysis/15_song_level_importance.py # ~9 min
+
+# 16. 下載 10K 子集 + 抽 per-song HDF5 的 segment-level 特徵
+curl -L -o data/millionsongsubset.tar.gz "http://labrosa.ee.columbia.edu/~dpwe/tmp/millionsongsubset.tar.gz"
+cd data && tar -xzf millionsongsubset.tar.gz && cd ..
+python analysis/16_subset_segments_extract.py  # ~1 min on 10K files
+
+# 17. baseline vs +segment 對照
+python analysis/17_subset_segments_model.py    # ~2 min
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -1134,7 +1186,15 @@ python analysis/15_song_level_importance.py # ~9 min
     ├── 07_rigor_strengthening.py
     ├── 08_catboost.py
     ├── 09_vocab_scaling.py
-    ├── 10_song_hotness_extract.py      ├── 11_song_vs_artist_hotness.py    ├── 12_track_level_features.py      ├── 13_song_level_pipeline.py       ├── 14_song_level_catboost.py       ├── 15_song_level_importance.py     ├── cache/
+    ├── 10_song_hotness_extract.py
+    ├── 11_song_vs_artist_hotness.py
+    ├── 12_track_level_features.py
+    ├── 13_song_level_pipeline.py
+    ├── 14_song_level_catboost.py
+    ├── 15_song_level_importance.py
+    ├── 16_subset_segments_extract.py
+    ├── 17_subset_segments_model.py
+    ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
     └── results/                        每個子目錄對應一支腳本
@@ -1168,15 +1228,23 @@ python analysis/15_song_level_importance.py # ~9 min
         │   └── feature_importance_catboost_by_category.csv
         ├── 09_vocab_scaling/
         │   └── benchmark_vocab_scaling.csv
-        ├── 10_song_hotness_extract/        │   ├── coverage_report.csv
+        ├── 10_song_hotness_extract/
+        │   ├── coverage_report.csv
         │   └── join_with_artist_pipeline.csv
-        ├── 11_song_vs_artist_hotness/        │   ├── diagnostics.csv
+        ├── 11_song_vs_artist_hotness/
+        │   ├── diagnostics.csv
         │   ├── per_artist_stats.csv
         │   └── extreme_cases.csv
-        ├── 12_track_level_features/        │   └── benchmark_track_level.csv
-        ├── 13_song_level_pipeline/         │   └── benchmark_song_level.csv
-        ├── 14_song_level_catboost/         │   └── benchmark_song_catboost.csv
-        └── 15_song_level_importance/             ├── block_importance.csv
-            ├── single_feature_importance.csv
-            └── audio_subfamily_importance.csv
+        ├── 12_track_level_features/
+        │   └── benchmark_track_level.csv
+        ├── 13_song_level_pipeline/
+        │   └── benchmark_song_level.csv
+        ├── 14_song_level_catboost/
+        │   └── benchmark_song_catboost.csv
+        ├── 15_song_level_importance/
+        │   ├── block_importance.csv
+        │   ├── single_feature_importance.csv
+        │   └── audio_subfamily_importance.csv
+        └── 17_subset_segments_model/
+            └── benchmark_subset.csv
 ```
