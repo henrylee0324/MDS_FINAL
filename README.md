@@ -1,8 +1,62 @@
 # Million Song Dataset：藝人熱度的線性模型實驗
 
-以 Million Song Dataset (MSD) 預處理版本（`data/MSD_with_all_features.db`，約 12 GB SQLite），用線性模型預測藝人熱度 `artist_hotttnesss`，並用非線性模型（HistGradientBoosting / RandomForest）作為預測天花板的對照。
+以 Million Song Dataset (MSD) 預處理版本（`data/MSD_with_all_features.db`，約 12 GB SQLite）為起點，以線性模型為主、非線性模型為對照，預測 `artist_hotttnesss`（artist-level）；並在 `song-hotness` 分支上補做 song-level 預測。
 
-整條 pipeline 拆成 6 個可重跑的腳本，每步的程式碼放在 `analysis/`，數值結果存成 CSV 在 `analysis/results/`。
+整條 pipeline 拆成 15 個可重跑的腳本（main: 1–9，song-hotness: 10–15），每步的程式碼放在 `analysis/`，數值結果存成 CSV 在 `analysis/results/<step>/`。
+
+---
+
+## 執行摘要（給技術讀者的全貌）
+
+### 研究設計
+
+兩條故事線各自得到一條「誠實的天花板」：
+
+| 任務 | 樣本單位 | CV | 對照基準 |
+|---|---|---|---|
+| **track 1（main）**：預測 `artist_hotttnesss` | 藝人（39,233 列） | 隨機 KFold | step 02 audio-only Ridge R²=0.084 |
+| **track 2（song-hotness）**：預測 `song_hotttnesss` | 歌（446,317 列） | **GroupKFold by artist** | step 11 ICC=0.572，43 % within-artist 變異 |
+
+### 全 R² 表（5-fold CV，括號內為 std）
+
+| Track | 配置 | R² |
+|---|---|---:|
+| 1 | OLS audio only (152) | 0.067 |
+| 1 | Ridge α=100 audio only | 0.084 |
+| 1 | Ridge strict（185，可解釋線性 baseline） | **0.237** |
+| 1 | HistGB strict + top-30 genre | 0.357 |
+| 1 | HistGB strict + top-1000 genre | **0.428** |
+| 1 | HistGB full + top-1000 genre + tl(12) | 0.464 |
+| 1 | CatBoost full + 7,538 tag text features（含 leakage） | **0.470** |
+| 2 | HistGB strict_song + top-1000，GroupKFold | **0.290** |
+| 2 | HistGB full_song + top-1000 + tl，GroupKFold | 0.317 |
+| 2 | CatBoost strict_song + text(7538)，GroupKFold | 0.286 |
+
+### 五個最重要的方法論教訓
+
+1. **音訊特徵是裝飾**——152 個音訊特徵的線性 R²（0.067）只到「5 個 metadata 特徵」（year/duration/n_tracks/n_genres/year_known_ratio）的 R²（0.258）的四分之一。即使換到非線性與 song-level，整個音訊 block 在 GroupKFold 下也只貢獻 ΔR²=0.028。
+
+2. **Vocabulary > Algorithm**——artist-level 從 R²=0.36 推到 0.43 的 +0.07 改進，**95 % 來自 genre vocabulary 從 30 開到 1000+，5 % 來自 HistGB → CatBoost 換模型**。step 09 vocab scaling 直接證實。
+
+3. **Leakage 檢查必須是 cluster-aware**——`n_tracks` 與 `n_genres` 是 popularity 的反向因果代理（藝人紅 → 被收錄多歌 / 被分多 tag），artist-level KFold 看到的 R²=0.42 中有 0.06 是這類 leak；step 14 進一步發現「Echo Nest 給更紅藝人更多 tag」**還隱藏在 vocabulary 中**——一旦改 GroupKFold by artist，CatBoost 全 7,538 tag 的優勢直接消失，與 HistGB top-1000 同等水平。
+
+4. **「Within-artist 變異」是 song-level 預測的真正挑戰**——step 11 量化此變異佔 43 %（ICC=0.572）。step 13 song-level R²=0.29 對照「藝人均值代填」理論上界 0.244，多出來的 0.046 才是 per-track 特徵真正提供的訊號。
+
+5. **單一最強特徵是 `year_per_track`**——step 15 permutation importance 顯示這個欄位 ΔR²=0.112，**比 152 個音訊特徵整塊（0.028）大 4 倍**。Echo Nest 演算法有強烈年代偏差。
+
+### 三個誠實的「天花板」
+
+| 場景 | R² | 用途 |
+|---|---:|---|
+| **可解釋線性**（Ridge on strict 185） | 0.24 | 寫報告用 |
+| **預測藝人 hotness**（HistGB strict + top-1000） | 0.43 | 對「沒見過的藝人」的最佳預測 |
+| **預測單首歌 hotness 對未見藝人**（HistGB GroupKFold） | 0.29 | 部署到產品的真天花板 |
+
+### 結論一句話
+
+> **「藝人/歌曲紅不紅」主要由曝光、年代、曲風標籤驅動，音訊本身只是次要訊號**——這個結論被 5 個獨立檢驗（VIF、PCA、Lasso、CatBoost text、permutation importance）相互驗證；不論換目標（artist→song）、換模型（OLS→Ridge→HistGB→CatBoost）、換 vocabulary（30→7,538）、換 CV（KFold→GroupKFold），這個排序都不變。
+
+詳見 [一頁摘要（給非技術讀者）](#一頁摘要給非技術讀者) 與下方各章節。
 
 ---
 
@@ -885,6 +939,30 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 | **預測單首歌 hotness 對新藝人（strict + GroupKFold）** | **0.29**（HistGB top-1000 = CatBoost text）|
 | **同上但允許 leak** | **0.32** |
 
+### 13.8 步驟 15：song-level 特徵重要度
+
+`analysis/15_song_level_importance.py`
+
+對 step 13 的 HistGB 模型做 block-level + single-feature permutation importance（單一 GroupKFold split 的 80/20 hold-out）。
+
+**Block 重要度**：
+
+| Block | n features | ΔR² |
+|---|---:|---:|
+| **genre_top1000** | 1,000 | **0.224**（最大） |
+| **per_track_yd**（year, duration, year_known） | 3 | **0.114** |
+| artist_leak（n_tracks_a 等）| 3 | 0.096 |
+| audio | 152 | 0.028 |
+| tl | 10 | 0.004 |
+
+**單一最強特徵**：`year_per_track` ΔR² = **0.112**，**比 152 個音訊整塊（0.028）大 4 倍**。
+
+**Audio sub-family 拆解**：marsyas（72 cols）= 0.013（佔音訊半數），其餘 MFCC_simple、Area_MoM、lowlevel、LPC 各 ≤ 0.003。
+
+**tl block 內部**：除 loudness（0.002）與 fade times（< 0.002）外，**mode、tempo、key、time_signature 對 hotness 預測幾乎沒貢獻**——這顛覆了「節奏 / 調性是音樂特徵」的直覺。
+
+完整數值見 `results/15_song_level_importance/`：`block_importance.csv`、`single_feature_importance.csv`、`audio_subfamily_importance.csv`。
+
 ---
 
 ## 14. 最終結論
@@ -966,6 +1044,9 @@ python analysis/13_song_level_pipeline.py   # ~20 min
 
 # 14. Song-level CatBoost + text features
 python analysis/14_song_level_catboost.py   # ~18 min
+
+# 15. Song-level feature importance (block + single perm on hold-out)
+python analysis/15_song_level_importance.py # ~9 min
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -1046,6 +1127,7 @@ python analysis/14_song_level_catboost.py   # ~18 min
     ├── 12_track_level_features.py        (branch: song-hotness)
     ├── 13_song_level_pipeline.py         (branch: song-hotness)
     ├── 14_song_level_catboost.py         (branch: song-hotness)
+    ├── 15_song_level_importance.py       (branch: song-hotness)
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -1091,6 +1173,10 @@ python analysis/14_song_level_catboost.py   # ~18 min
         │   └── benchmark_track_level.csv
         ├── 13_song_level_pipeline/       (branch: song-hotness)
         │   └── benchmark_song_level.csv
-        └── 14_song_level_catboost/       (branch: song-hotness)
-            └── benchmark_song_catboost.csv
+        ├── 14_song_level_catboost/       (branch: song-hotness)
+        │   └── benchmark_song_catboost.csv
+        └── 15_song_level_importance/     (branch: song-hotness)
+            ├── block_importance.csv
+            ├── single_feature_importance.csv
+            └── audio_subfamily_importance.csv
 ```
