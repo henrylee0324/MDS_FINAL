@@ -1,8 +1,8 @@
 # Million Song Dataset：藝人熱度的線性模型實驗
 
-以 Million Song Dataset (MSD) 預處理版本（`data/MSD_with_all_features.db`，約 12 GB SQLite）為起點，以線性模型為主、非線性模型為對照，預測 `artist_hotttnesss`（artist-level）；並在 `song-hotness` 分支上補做 song-level 預測。
+以 Million Song Dataset (MSD) 預處理版本（`data/MSD_with_all_features.db`，約 12 GB SQLite）為起點，以線性模型為主、非線性模型為對照，預測 `artist_hotttnesss`（artist-level）；並從 MSD 官方 H5 取回 `song_hotttnesss` 補做 song-level 預測。
 
-整條 pipeline 拆成 15 個可重跑的腳本（main: 1–9，song-hotness: 10–15），每步的程式碼放在 `analysis/`，數值結果存成 CSV 在 `analysis/results/<step>/`。
+整條 pipeline 拆成 15 個可重跑的腳本（artist-level: 1–9，song-level 延伸: 10–15），每步的程式碼放在 `analysis/`，數值結果存成 CSV 在 `analysis/results/<step>/`。Song-level 部分原先在 `song-hotness` 分支獨立發展，已合回 `main`。
 
 ---
 
@@ -1023,12 +1023,9 @@ python analysis/08_catboost.py              # ~16 min（4 個 5-fold CV + 1 fina
 python analysis/09_vocab_scaling.py         # ~7 min
 ```
 
-### song-hotness 分支延伸實驗
+### Song-level 延伸實驗（原先在 song-hotness 分支，已合回 main）
 
 ```powershell
-# 切到延伸分支
-git checkout song-hotness
-
 # 10. 從 millionsongdataset.com 下載 H5（316 MB），抽取 song_hotttnesss 與 track-level 特徵
 curl -L -o data/msd_summary_file.h5 "http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5"
 python analysis/10_song_hotness_extract.py  # ~45s
@@ -1122,13 +1119,7 @@ python analysis/15_song_level_importance.py # ~9 min
     ├── 07_rigor_strengthening.py
     ├── 08_catboost.py
     ├── 09_vocab_scaling.py
-    ├── 10_song_hotness_extract.py        (branch: song-hotness)
-    ├── 11_song_vs_artist_hotness.py      (branch: song-hotness)
-    ├── 12_track_level_features.py        (branch: song-hotness)
-    ├── 13_song_level_pipeline.py         (branch: song-hotness)
-    ├── 14_song_level_catboost.py         (branch: song-hotness)
-    ├── 15_song_level_importance.py       (branch: song-hotness)
-    ├── cache/
+    ├── 10_song_hotness_extract.py      ├── 11_song_vs_artist_hotness.py    ├── 12_track_level_features.py      ├── 13_song_level_pipeline.py       ├── 14_song_level_catboost.py       ├── 15_song_level_importance.py     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
     └── results/                        每個子目錄對應一支腳本
@@ -1162,21 +1153,15 @@ python analysis/15_song_level_importance.py # ~9 min
         │   └── feature_importance_catboost_by_category.csv
         ├── 09_vocab_scaling/
         │   └── benchmark_vocab_scaling.csv
-        ├── 10_song_hotness_extract/      (branch: song-hotness)
-        │   ├── coverage_report.csv
+        ├── 10_song_hotness_extract/        │   ├── coverage_report.csv
         │   └── join_with_artist_pipeline.csv
-        ├── 11_song_vs_artist_hotness/    (branch: song-hotness)
-        │   ├── diagnostics.csv
+        ├── 11_song_vs_artist_hotness/        │   ├── diagnostics.csv
         │   ├── per_artist_stats.csv
         │   └── extreme_cases.csv
-        ├── 12_track_level_features/      (branch: song-hotness)
-        │   └── benchmark_track_level.csv
-        ├── 13_song_level_pipeline/       (branch: song-hotness)
-        │   └── benchmark_song_level.csv
-        ├── 14_song_level_catboost/       (branch: song-hotness)
-        │   └── benchmark_song_catboost.csv
-        └── 15_song_level_importance/     (branch: song-hotness)
-            ├── block_importance.csv
+        ├── 12_track_level_features/        │   └── benchmark_track_level.csv
+        ├── 13_song_level_pipeline/         │   └── benchmark_song_level.csv
+        ├── 14_song_level_catboost/         │   └── benchmark_song_catboost.csv
+        └── 15_song_level_importance/             ├── block_importance.csv
             ├── single_feature_importance.csv
             └── audio_subfamily_importance.csv
 ```
