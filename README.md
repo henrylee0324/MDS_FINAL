@@ -815,8 +815,21 @@ vocabulary 帶來的改進是換模型的 **6–10 倍**——驗證之前的判
 
 `analysis/10_song_hotness_extract.py`
 
-- 從 http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5 下載（316 MB，重定向到 millionsongdataset.com）
-- 用 PyTables 讀 H5 中的 `/metadata/songs`、`/analysis/songs`、`/musicbrainz/songs` 三表，按 row 對齊抽出每首歌的 `song_hotttnesss` 加上 11 個 track-level Echo Nest 分析欄（loudness, tempo, key, mode, time_signature, durations, fade times）
+**下載**：
+```
+http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5
+```
+
+| 項目 | 值 |
+|---|---|
+| Protocol | **HTTP**（不是 HTTPS）|
+| Redirect | 301 → `http://millionsongdataset.com/sites/default/files/AdditionalFiles/msd_summary_file.h5` |
+| Content-Length | **316,104,481 bytes**（≈ 316 MB，可作為下載完整性檢查）|
+| Last-Modified | 2011-01-25（檔案至今未動，重現結果應一致）|
+
+> ⚠️ **不要用 `https://`**——LabROSA（Columbia）的 HTTPS 憑證已過期，瀏覽器會報 cert 錯誤；`millionsongdataset.com` 也只走 HTTP。`curl -L` 會自動跟隨 301 redirect。
+
+**處理**：用 PyTables 讀 H5 中的 `/metadata/songs`、`/analysis/songs`、`/musicbrainz/songs` 三表，按 row 對齊抽出每首歌的 `song_hotttnesss` 加上 11 個 track-level Echo Nest 分析欄（loudness, tempo, key, mode, time_signature, durations, fade times）
 
 | 指標 | 值 |
 |---|---:|
@@ -1026,8 +1039,10 @@ python analysis/09_vocab_scaling.py         # ~7 min
 ### Song-level 延伸實驗（原先在 song-hotness 分支，已合回 main）
 
 ```powershell
-# 10. 從 millionsongdataset.com 下載 H5（316 MB），抽取 song_hotttnesss 與 track-level 特徵
+# 10. 下載 MSD H5（316 MB；用 http://，HTTPS 憑證已過期）→ 抽取 song_hotttnesss + track-level 特徵
+#     curl -L 自動跟隨 301 redirect 到 millionsongdataset.com
 curl -L -o data/msd_summary_file.h5 "http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5"
+# 驗證下載完整：應為 316,104,481 bytes
 python analysis/10_song_hotness_extract.py  # ~45s
 
 # 11. 診斷 song_hotttnesss 內部變異
