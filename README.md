@@ -31,6 +31,8 @@
 | 2 | HistGB strict_song + top-1000，GroupKFold | **0.290** |
 | 2 | HistGB full_song + top-1000 + tl，GroupKFold | 0.317 |
 | 2 | CatBoost strict_song + text(7538)，GroupKFold | 0.286 |
+| 2 (Taste Profile) | HistGB strict_song，**target = log1p(real plays)** | **0.196** |
+| 2 (Taste Profile) | HistGB full_song，target = log1p(real plays) | 0.216 |
 
 ### 五個最重要的方法論教訓
 
@@ -50,7 +52,8 @@
 |---|---:|---|
 | **可解釋線性**（Ridge on strict 185） | 0.24 | 寫報告用 |
 | **預測藝人 hotness**（HistGB strict + top-1000） | 0.43 | 對「沒見過的藝人」的最佳預測 |
-| **預測單首歌 hotness 對未見藝人**（HistGB GroupKFold） | 0.29 | 部署到產品的真天花板 |
+| **預測單首歌 hotness（song_hotttnesss target）** | 0.29 | 上限被 Echo Nest 演算法 self-reference 灌水 |
+| **預測單首歌 真實播放數（log_plays target）** ⭐ | **0.20** | **真正能對新資料生效的天花板**（step 19）|
 
 ### 結論一句話
 
@@ -86,6 +89,7 @@
 | 6 | （延伸分支）拿到 song_hotttnesss 後做 song-level + GroupKFold | R² = **0.29**（strict）| 對「沒見過的新藝人預測單首歌紅度」這個更嚴格的任務，誠實天花板比 artist-level 的 0.43 低，但這不是退步——是任務變嚴格 |
 | 7 | 進一步驗證：在 GroupKFold 下，CatBoost + 7,538 tags 沒比 HistGB + top-1000 好 | R² 仍 0.29 | **artist-level 看到的「CatBoost + 全 vocabulary +0.07」其中大半是 leakage**——一旦公平評估就消失 |
 | 8 | 拿 MSD 10K 子集測試「per-segment 音訊細節」（完整 280 GB 才有的東西）會不會突破 | 對純音訊：+0.019；對完整 pipeline：**+0.000** | **答案明確：完整 MSD 拿來也沒用**——hotness 預測的瓶頸是「社會/行銷」不是「音訊細節」 |
+| 9 | 換 target：用 **Taste Profile 真實 play count** 而非 Echo Nest 演算法分數 | R² = **0.20**（strict）vs 0.29（song_hot 的天花板）| **之前 0.29 的天花板高估了**——hotttnesss 包含 year + genre 訊號，模型在 self-reference。真天花板 ≈ 0.20，「音訊是裝飾」結論不變 |
 
 > **R² 是什麼？** 一個 0 到 1 的數字。0 = 跟亂猜一樣，1 = 完美預測，0.5 = 解釋了一半的變化。
 
@@ -102,8 +106,8 @@
 ### 想看技術細節？
 
 - 每個步驟都分成「**白話版**」與「**技術細節**」兩段
-- 看到看不懂的術語，跳到最後的「[17. 名詞解釋](#17-名詞解釋)」
-- 想複製整個實驗，看「[15. 重現方式](#15-重現方式)」
+- 看到看不懂的術語，跳到最後的「[18. 名詞解釋](#18-名詞解釋)」
+- 想複製整個實驗，看「[16. 重現方式](#16-重現方式)」
 
 ---
 
@@ -1022,7 +1026,71 @@ http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/m
 
 ---
 
-## 14. 最終結論
+## 14. 換 target：MSD Taste Profile 真實 play count
+
+> **白話版**：到目前所有實驗都用 `song_hotttnesss` 作 target，但那是 Echo Nest 自家算的演算法分數。**如果用「真實累積播放次數」當 target 呢？** MSD Taste Profile 提供 48M user-song-playcount 三元組，重做 song-level 預測。**結論：之前 song_hotttnesss target 報的 R²=0.29 高估了，誠實天花板其實是 R²≈0.20**——因為 hotttnesss 本身的演算法就用了 year + genre 等特徵，我們的模型在「無意間還原 Echo Nest 自家公式」。
+
+`analysis/18_taste_profile_aggregate.py` + `analysis/19_taste_profile_model.py`
+
+### 14.1 Taste Profile 資料
+
+| 性質 | 值 |
+|---|---|
+| 下載 URL | http://labrosa.ee.columbia.edu/~dpwe/tmp/train_triplets.txt.zip |
+| 大小 | 488 MB（壓縮）/ ~1.5 GB（解壓）|
+| 列數 | 48,373,586 三元組 |
+| 涵蓋歌曲 | 384,546 個 `song_id` |
+| 涵蓋使用者 | ~1M unique users |
+| 取得方式 | Echo Nest 從未公開的合作平台收集（2010–2011，已凍結）|
+
+step 18 聚合到 per-song stats：
+- `total_plays`: 累積播放數，median 32，p99 5,509，**max 726,885**（重尾）
+- `n_listeners`: 不同使用者數
+- **`log_plays = log1p(total_plays)`**: mean 3.67，std 1.91 —— 即將作為新 target
+
+### 14.2 與 `song_hotttnesss` 的相關性（sanity check）
+
+| 比較 | Pearson r | Spearman r | n |
+|---|---:|---:|---:|
+| **`log_plays` vs `song_hotttnesss`** | **0.526** | 0.509 | 277,020 |
+| `total_plays` vs `song_hotttnesss`（未 log）| 0.145 | 0.509 | 277,020 |
+
+兩個「popularity」指標只共享 **r² ≈ 27 %** 變異——**它們不是同一件事**。Echo Nest 的演算法分數捕捉「網路曝光熱度」，Taste Profile 捕捉「真實累積播放」。
+
+### 14.3 R² 對照（5-fold GroupKFold by artist_id，HistGB tuned）
+
+樣本：n = 375,177 / 28,749 artists（pipeline ∩ play count 可用）
+
+| Config | song_hot target<br/>(step 13) | **log_plays target<br/>(step 19)** | Δ |
+|---|---:|---:|---:|
+| audio_only | 0.071 | **0.059** | −0.012 |
+| **strict_baseline** | 0.290 | **0.196** | **−0.094** |
+| **full_baseline** | 0.317 | **0.216** | **−0.101** |
+
+### 14.4 三個重要意涵
+
+#### **(1) `song_hotttnesss` 比真實 play count「更好預測」是 self-reference 假象**
+
+那 ~0.10 的 R² 落差是「**模型在還原 Echo Nest 自家演算法**」的人造訊號——hotttnesss 本身就是用 year + 媒體曝光等訊號算的，我們的特徵（year, genre tags）剛好能還原這個訊號。換成真實 play count 後，這個 self-reference 訊號消失。
+
+#### **(2) 真正的「對新藝人預測單首歌紅度」誠實天花板是 R² ≈ 0.20**
+
+之前 step 13 報告的 0.29 高估了，因為它的 target 部分由我們的特徵自動產生。**0.20 才是真正能對新資料生效的天花板**。
+
+#### **(3) 「音訊是裝飾」結論完全不變**
+
+| Target | audio_only R² | + metadata 跳到 | Δ from metadata |
+|---|---:|---:|---:|
+| song_hot | 0.071 | 0.290 | +0.219 |
+| log_plays | 0.059 | 0.196 | **+0.137** |
+
+不論 target 怎麼換，audio_only 都 ≈ 0.06–0.07；加 metadata 後跳 ~0.14–0.22。**音訊邊際貢獻 target-invariant**。
+
+完整結果見 `results/19_taste_profile_model/benchmark_taste_profile.csv`、`correlation_with_song_hot.csv`。
+
+---
+
+## 15. 最終結論
 
 > **白話版**：根據用途不同，推薦不同的模型——「描述現有資料」可以用 R²=0.47 的 CatBoost 版本（含 leakage），但**真正部署到新藝人**要用 R²=0.43（CatBoost 誠實 + 全 tags）或 R²=0.24（線性誠實）的版本。**核心洞察是：藝人熱度由「曲風標籤、曝光、年代」三件事驅動，音訊本身只是次要訊號**——用 7,538 個原始 tag 比 152 個音訊特徵的訊息量還大。
 
@@ -1049,7 +1117,7 @@ http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/m
 
 ---
 
-## 15. 重現方式
+## 16. 重現方式
 
 ```powershell
 # 1. 從 SQLite 聚合到藝人層級
@@ -1111,6 +1179,13 @@ python analysis/16_subset_segments_extract.py  # ~1 min on 10K files
 
 # 17. baseline vs +segment 對照
 python analysis/17_subset_segments_model.py    # ~2 min
+
+# 18. 下載 Taste Profile triplets + 聚合 per-song play counts
+curl -L -o data/train_triplets.txt.zip "http://labrosa.ee.columbia.edu/~dpwe/tmp/train_triplets.txt.zip"
+python analysis/18_taste_profile_aggregate.py  # ~30s
+
+# 19. 換 target = log1p(total_plays)，跑 song-level + GroupKFold
+python analysis/19_taste_profile_model.py      # ~18 min
 ```
 
 依賴：`numpy`, `pandas`, `scikit-learn`（建議 ≥ 1.3）。
@@ -1119,7 +1194,7 @@ python analysis/17_subset_segments_model.py    # ~2 min
 
 ---
 
-## 16. 已知限制
+## 17. 已知限制
 
 1. **`song_hotttnesss` 不在本 DB**——只能用 `artist_hotttnesss` 作為熱度代理；同藝人的不同歌存在差異（8.4 % 藝人，median spread 0.028），以 `AVG` 聚合時抹平了這個變異。
 2. **`year_mean` 對 32 % 的藝人是 NaN**（所有歌 `year = 0`），用 median 補值，可能稀釋年代訊號。
@@ -1130,7 +1205,7 @@ python analysis/17_subset_segments_model.py    # ~2 min
 
 ---
 
-## 17. 名詞解釋
+## 18. 名詞解釋
 
 | 術語 | 中文 | 白話解釋 |
 |---|---|---|
@@ -1165,7 +1240,7 @@ python analysis/17_subset_segments_model.py    # ~2 min
 
 ---
 
-## 18. 檔案結構
+## 19. 檔案結構
 
 ```
 .
@@ -1194,6 +1269,8 @@ python analysis/17_subset_segments_model.py    # ~2 min
     ├── 15_song_level_importance.py
     ├── 16_subset_segments_extract.py
     ├── 17_subset_segments_model.py
+    ├── 18_taste_profile_aggregate.py
+    ├── 19_taste_profile_model.py
     ├── cache/
     │   ├── artist_audio_agg.pkl
     │   └── artist_extra.pkl
@@ -1245,6 +1322,9 @@ python analysis/17_subset_segments_model.py    # ~2 min
         │   ├── block_importance.csv
         │   ├── single_feature_importance.csv
         │   └── audio_subfamily_importance.csv
-        └── 17_subset_segments_model/
-            └── benchmark_subset.csv
+        ├── 17_subset_segments_model/
+        │   └── benchmark_subset.csv
+        └── 19_taste_profile_model/
+            ├── benchmark_taste_profile.csv
+            └── correlation_with_song_hot.csv
 ```
