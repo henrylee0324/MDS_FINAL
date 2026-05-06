@@ -118,9 +118,57 @@
 - **過濾**：`artist_hotttnesss > 0`，排除 `-1`（無資料）與 `0`（缺失）兩種 sentinel
 - **聚合**：所有特徵在 SQL 端用 `AVG()` 聚合到藝人層級
 
-> 註：MSD 原版有歌曲層級的 `song_hotttnesss`，但本 DB 在預處理時已被移除；只能以 `artist_hotttnesss` 作為熱度代理。
+> 註：MSD 原版有歌曲層級的 `song_hotttnesss`，但本 DB 在預處理時已被移除；artist-level pipeline 只能以 `artist_hotttnesss` 作為熱度代理（song-level 部分後來在第 13 節從 H5 取回 `song_hotttnesss`）。
 
 > 註：8.4 % 的藝人（3,312 / 39,292）在不同歌曲間 `artist_hotttnesss` 不完全一致（median spread 0.028，最大 0.48），原因可能是 Echo Nest 在不同收錄時間取的快照。本實驗以 `AVG` 聚合，已知並接受此瑕疵。
+
+### 1.1 資料來源總覽
+
+本研究用到三類資料檔。所有檔案皆位於 `data/` 或 `analysis/cache/`，**兩個目錄都在 `.gitignore` 內**——clone 此 repo 後不會自動拿到。
+
+#### A. 同伴整理（**外部提供，非公開下載**）
+
+| 檔案 | 大小 | 內容 |
+|---|---:|---|
+| **`data/MSD_with_all_features.db`** | **12 GB** | 預處理的 SQLite；含 8 張表（`songs` metadata + 6 種音訊特徵表 + 合併表 `merged_partition1`）。整套 artist-level pipeline 的起點 |
+| `data/flattened_MSD_with_all_features_remove_missing_values-001.csv` | 3.1 GB | DB 中 `merged_partition1` 的攤平 CSV 版（已剔除缺失值），與 SQLite 內容等價 |
+| `data/head200_flattened_*.csv` | 685 KB | 前 200 列預覽 |
+
+> ⚠️ **這份 DB 是同伴整理的，不是 MSD 官方發行版**。要重現完整 pipeline 需自行向同伴取得；若手上沒有，從 **step 10 起仍能獨立重現** song-level + Taste Profile 實驗（這些只依賴下方 B 區的官方檔）。
+
+#### B. 從 MSD / Taste Profile 官方下載
+
+| 檔案 | 大小 | URL | 在 step | 說明 |
+|---|---:|---|---:|---|
+| `data/msd_summary_file.h5` | 316 MB | [labrosa.ee.columbia.edu/.../msd_summary_file.h5](http://labrosa.ee.columbia.edu/millionsong/sites/default/files/AdditionalFiles/msd_summary_file.h5) | 10 | 1M 首歌的 metadata（含 `song_hotttnesss`）+ track-level Echo Nest 分析 |
+| `data/millionsongsubset.tar.gz` <br/>（解壓為 `data/MillionSongSubset/`） | 1.85 GB | [labrosa.ee.columbia.edu/~dpwe/tmp/millionsongsubset.tar.gz](http://labrosa.ee.columbia.edu/~dpwe/tmp/millionsongsubset.tar.gz) | 16 | 10K 首歌的完整 per-song HDF5（含 `segments_timbre/pitches/loudness`、`bars/beats/sections/tatums`）|
+| `data/train_triplets.txt.zip` <br/>（解壓為 `data/train_triplets.txt`） | 488 MB | [labrosa.ee.columbia.edu/~dpwe/tmp/train_triplets.txt.zip](http://labrosa.ee.columbia.edu/~dpwe/tmp/train_triplets.txt.zip) | 18 | MSD Taste Profile：48M 個 (user, song, play_count) 三元組 |
+
+> ⚠️ **三個 URL 都是 HTTP 不是 HTTPS**——LabROSA / millionsongdataset.com 的 HTTPS 憑證已過期。`curl -L` 會自動跟隨重定向。完整 caveats（Content-Length、Last-Modified、是否需要 redirect）見第 13.1、13.9、14.1 節以及第 16 節「重現方式」的對應 curl 指令。
+
+> **完整 MSD 280 GB**：原 AWS S3 bucket（`s3://tbmmsd/`）已關閉公開讀取（403 Forbidden）。目前**沒有**直接公開下載完整 MSD 的途徑；本研究只用得到上述官方 subset。
+
+#### C. 由分析腳本產生（中間 cache，**可從 A + B 重生**）
+
+| 檔案 | 大小 | 產生來源 |
+|---|---:|---|
+| `analysis/cache/artist_audio_agg.pkl` | ~70 MB | `analysis/01_aggregate_features.py`（讀 SQLite）|
+| `analysis/cache/artist_extra.pkl` | ~12 MB | 同上 |
+| `data/msd_summary_extract.pkl` | 160 MB | `analysis/10_song_hotness_extract.py`（讀 H5）|
+| `data/subset_segment_features.pkl` | 8 MB | `analysis/16_subset_segments_extract.py`（讀 10K subset）|
+| `data/song_play_aggregate.pkl` | 18 MB | `analysis/18_taste_profile_aggregate.py`（讀 triplets）|
+
+#### 最低重現需求
+
+| 想跑的範圍 | 需要的檔案 |
+|---|---|
+| Step 01–09（artist-level main 故事）| 必需 A.1（`MSD_with_all_features.db`）|
+| Step 10–15（song-level 延伸）| A.1 + B.1 |
+| Step 16–17（segment-level 實驗）| A.1 + B.1 + B.2 |
+| Step 18–19（Taste Profile 真實播放數）| A.1 + B.1 + B.3 |
+| **只跑 step 10–19（不需 A）**——僅 song-level 部分 | B.1–B.3 + 自己改寫小段腳本，把 audio block 從 SQLite 改讀 H5 也可（沒實作，但可行）|
+
+
 
 ---
 
