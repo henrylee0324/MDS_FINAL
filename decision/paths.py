@@ -10,6 +10,7 @@ OUTPUT_DIR = ROOT / 'outputs'
 _CSV_NAME = 'head200_MSD_with_all_features_categorical_encoded.csv'
 _CSV_CANDIDATES = [
     DATA_DIR / _CSV_NAME,
+    ROOT / 'sample_data' / _CSV_NAME,
     WORKSPACE_ROOT / _CSV_NAME,
     PROJECT_ROOT / _CSV_NAME,
 ]

@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 *.pkl
+~$*
+.DS_Store
 # 可重跑的中間檔不追蹤；決策交付物保留
 outputs/*
 !outputs/.gitkeep
@@ -9,4 +11,3 @@ outputs/*
 !outputs/*.csv
 !outputs/*.md
 !outputs/*.json
-~$*
