@@ -1,0 +1,163 @@
+{
+  "config": {
+    "csv_path": null,
+    "base_row": 0,
+    "target": null,
+    "n_songs": 20,
+    "run_multperiod": true,
+    "periods": [
+      "Q1_春夏檔",
+      "Q2_秋季檔",
+      "Q3_年末檔"
+    ],
+    "budget_by_period": {
+      "Q1_春夏檔": 75.0,
+      "Q2_秋季檔": 70.0,
+      "Q3_年末檔": 65.0
+    },
+    "l_min_by_period": {
+      "Q1_春夏檔": 2,
+      "Q2_秋季檔": 2,
+      "Q3_年末檔": 1
+    },
+    "u_max_by_period": {
+      "Q1_春夏檔": 4,
+      "Q2_秋季檔": 4,
+      "Q3_年末檔": 3
+    },
+    "acoustic_policy": {
+      "Q1_春夏檔": {
+        "loudness": null,
+        "tempo": 105.0,
+        "danceability": null,
+        "energy": 0.15
+      },
+      "Q2_秋季檔": {
+        "loudness": null,
+        "tempo": 95.0,
+        "danceability": null,
+        "energy": null
+      },
+      "Q3_年末檔": {
+        "loudness": -6.0,
+        "tempo": 100.0,
+        "danceability": 0.1,
+        "energy": 0.2
+      }
+    },
+    "calibrate_acoustic": true,
+    "acoustic_quantile": 0.2,
+    "budget": 210.0,
+    "l_min": 5,
+    "u_max": 11,
+    "auto_feasible": true,
+    "loudness_min": null,
+    "tempo_min": null,
+    "budget_sensitivity": [
+      120.0,
+      150.0,
+      180.0,
+      210.0,
+      240.0
+    ]
+  },
+  "profile": {
+    "n_rows": 200,
+    "n_cols": 1754,
+    "target": "song_hotttnesss",
+    "n_valid_target": 66,
+    "target_mean": 0.44304963913636364,
+    "target_std": 0.40064352970608985,
+    "n_term_features": 1486,
+    "n_audio_features": 1741,
+    "has_danceability": true,
+    "has_energy": true,
+    "prototype_title": "Silent Night",
+    "prototype_artist": "Faster Pussy cat",
+    "prototype_hotness": 0.5218203
+  },
+  "chosen": [
+    "NEW_SONG_02",
+    "NEW_SONG_08",
+    "NEW_SONG_12",
+    "NEW_SONG_13",
+    "NEW_SONG_14",
+    "NEW_SONG_18",
+    "NEW_SONG_19"
+  ],
+  "status": "Optimal",
+  "comparison": [
+    {
+      "方法": "ILP 多限制式背包（本模型）",
+      "選中首數": 7,
+      "Σŷ": 4.3515,
+      "總成本": 200.0,
+      "選中 ID": "NEW_SONG_02,NEW_SONG_08,NEW_SONG_12,NEW_SONG_13,NEW_SONG_14,NEW_SONG_18,NEW_SONG_19",
+      "聲學門檻全通過": true,
+      "Δŷ vs 傳統": 1.8498
+    },
+    {
+      "方法": "傳統 A&R（各檔 ŷ 貪婪）",
+      "選中首數": 4,
+      "Σŷ": 2.5016,
+      "總成本": 172.0,
+      "選中 ID": "NEW_SONG_20,NEW_SONG_19,NEW_SONG_04,NEW_SONG_14",
+      "聲學門檻全通過": true,
+      "Δŷ vs 傳統": 0.0
+    },
+    {
+      "方法": "ILP · Q1_春夏檔",
+      "選中首數": 2,
+      "Σŷ": 1.2455,
+      "總成本": 72.0,
+      "選中 ID": "NEW_SONG_08,NEW_SONG_14",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    },
+    {
+      "方法": "傳統 · Q1_春夏檔",
+      "選中首數": 2,
+      "Σŷ": 1.2508,
+      "總成本": 70.0,
+      "選中 ID": "NEW_SONG_20,NEW_SONG_19",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    },
+    {
+      "方法": "ILP · Q2_秋季檔",
+      "選中首數": 3,
+      "Σŷ": 1.8656,
+      "總成本": 70.0,
+      "選中 ID": "NEW_SONG_12,NEW_SONG_18,NEW_SONG_19",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    },
+    {
+      "方法": "傳統 · Q2_秋季檔",
+      "選中首數": 1,
+      "Σŷ": 0.6254,
+      "總成本": 52.0,
+      "選中 ID": "NEW_SONG_04",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    },
+    {
+      "方法": "ILP · Q3_年末檔",
+      "選中首數": 2,
+      "Σŷ": 1.2403,
+      "總成本": 58.0,
+      "選中 ID": "NEW_SONG_02,NEW_SONG_13",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    },
+    {
+      "方法": "傳統 · Q3_年末檔",
+      "選中首數": 1,
+      "Σŷ": 0.6254,
+      "總成本": 50.0,
+      "選中 ID": "NEW_SONG_14",
+      "聲學門檻全通過": "",
+      "Δŷ vs 傳統": ""
+    }
+  ]
+}

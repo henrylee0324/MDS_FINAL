@@ -1376,3 +1376,14 @@ python analysis/19_taste_profile_model.py      # ~18 min
             ├── benchmark_taste_profile.csv
             └── correlation_with_song_hot.csv
 ```
+
+## 20. 商業決策模組（`decision/`）
+
+在 `analysis/` 模型完成後，以 **20 首模擬新歌** + **三檔期多限制式背包** 產出發行組合。
+
+```bash
+cd decision
+bash setup.sh && bash run.sh
+```
+
+詳見 [decision/README.md](decision/README.md) 與 [decision/DECISION_REQUIREMENTS.md](decision/DECISION_REQUIREMENTS.md)。

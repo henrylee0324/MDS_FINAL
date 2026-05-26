@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.pkl
+# 可重跑的中間檔不追蹤；決策交付物保留
+outputs/*
+!outputs/.gitkeep
+!outputs/*.xlsx
+!outputs/*.csv
+!outputs/*.md
+!outputs/*.json
+~$*
